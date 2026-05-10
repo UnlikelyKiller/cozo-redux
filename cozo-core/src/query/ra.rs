@@ -14,6 +14,8 @@ use either::{Left, Right};
 use itertools::Itertools;
 use log::debug;
 use miette::{bail, Diagnostic, Result};
+#[cfg(feature = "rayon")]
+use rayon::prelude::*;
 use smartstring::SmartString;
 use thiserror::Error;
 
@@ -2261,6 +2263,39 @@ impl InnerJoin {
             }
             cache.into_iter().collect_vec()
         };
+
+        #[cfg(feature = "rayon")]
+        {
+            const PAR_THRESHOLD: usize = 512;
+            if cached_data.len() >= PAR_THRESHOLD {
+                let mut left_tuples = vec![left_cache];
+                for item in left_iter {
+                    left_tuples.push(item?);
+                }
+                let results: Vec<Tuple> = left_tuples
+                    .par_iter()
+                    .flat_map_iter(|left_tuple| {
+                        let (prefix, mut right_idx) =
+                            build_mat_range_iter(&cached_data, &left_join_indices, left_tuple);
+                        let mut out = vec![];
+                        while right_idx < cached_data.len() {
+                            let data = &cached_data[right_idx];
+                            if !data.starts_with(&prefix) {
+                                break;
+                            }
+                            let mut ret = left_tuple.clone();
+                            for i in &right_invert_indices {
+                                ret.push(data[*i].clone());
+                            }
+                            out.push(eliminate_from_tuple(ret, &eliminate_indices));
+                            right_idx += 1;
+                        }
+                        out
+                    })
+                    .collect();
+                return Ok(Box::new(results.into_iter().map(Ok)));
+            }
+        }
 
         let (prefix, right_idx) =
             build_mat_range_iter(&cached_data, &left_join_indices, &left_cache);
