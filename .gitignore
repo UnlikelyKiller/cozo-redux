@@ -39,3 +39,11 @@ Cross.toml
 .cozo_repl_history
 /venv/
 flamegraph*.svg
+
+# Agent and AI config
+.agents/
+.claude/
+.opencode/
+agents.md
+claude.md
+.changeguard/
