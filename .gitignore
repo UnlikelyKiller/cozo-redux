@@ -49,3 +49,4 @@ flamegraph*.svg
 agents.md
 claude.md
 .changeguard/
+.env
