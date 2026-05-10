@@ -12,7 +12,9 @@ target/
 **/*.rs.bk
 
 _path*
-*.db### CMake template
+*.db
+### CMake template
+
 CMakeLists.txt.user
 CMakeCache.txt
 CMakeFiles
