@@ -4,13 +4,13 @@ Date: 2026-05-10
 
 ## Current Objective
 
-Track 007 Phase 1 — Join Parallelization — complete and committed (`4d6bbca5`).
-Next active work: **Track 007 Phase 2 — Parallel Iterator Integration** for `UnificationRA` and `FilteredRA`.
+Track 007 — Join/Iterator Parallelization — **COMPLETE** (all 3 phases committed).
+Next active work: **Track 008 Phase 1 — TempStore Optimization**.
 
 ## ChangeGuard State
 
 - Ledger: `0 pending, 0 unaudited drift`
-- Last committed git commit: `4d6bbca5` — feat(track007): Phase 1 — parallel InnerJoin via rayon in materialized_join
+- Last committed git commit: `c025fea5` — test(track007): Phase 3 — parallel path correctness tests + scaling audit
 
 ## Pre-commit Hook (actual)
 
@@ -28,33 +28,35 @@ Note: hook does NOT use `--all-targets` (excludes benches) or `-D warnings`.
 
 ### Phase 2: Tuple SmallVec Migration — DONE
 - `Tuple = SmallVec<[DataValue; 6]>` in `cozo-core/src/data/tuple.rs`
-- All tuple constructors, call sites, bindings (Python, Node), and tests updated.
-- Full test suite (171 tests) passed.
 
-## Track 007 — IN PROGRESS
+## Track 007 — COMPLETE
 
 ### Phase 1: Join Parallelization — DONE (commit `4d6bbca5`)
 - Parallel probe path in `materialized_join` in `cozo-core/src/query/ra.rs`.
-- `PAR_THRESHOLD = 512`: when right side ≥ 512 tuples, materialize left side and
-  probe via `par_iter().flat_map_iter()`.
-- rayon promoted from optional to required dep; `rayon = []` feature marker added
-  so `#[cfg(feature = "rayon")]` guards work correctly.
-- Parallel block gated with `#[cfg(feature = "rayon")]` for `compact-single-threaded` compat.
-- Both feature configs (`compact` and `compact-single-threaded`) compile clean.
-- All tests pass via `changeguard verify`.
+- `PAR_THRESHOLD = 512`: when right side ≥ 512 tuples, materialize left and probe via `par_iter().flat_map_iter()`.
+- rayon promoted to required dep; `rayon = []` feature marker for `#[cfg]` compatibility.
 
-### Phase 2: Parallel Iterator Integration — NEXT
-- [ ] Identify hot `UnificationRA::iter` and `FilteredRA::iter` call sites.
-- [ ] Evaluate whether `par_bridge()` or full materialization is appropriate.
-- [ ] Benchmark par_iter overhead on small datasets to find switching threshold.
-- [ ] Gate any parallel paths with `#[cfg(feature = "rayon")]`.
+### Phase 2: Parallel Iterator Integration — DONE (commit `0bb2d076`)
+- `FilteredRA::iter`: sample-then-decide pattern with `FILTER_PAR_THRESHOLD = 1024`.
+  - Large batches: `into_par_iter().map(|t| { stack=vec![]; eval_bytecode_pred(...) })`.
+  - `Result<Option<T>>::transpose()` bridges map→filter_map without extra collect.
+  - `#[cfg(not(feature="rayon"))]` on serial block eliminates unreachable-code warning.
+- `UnificationRA::iter` (non-multi only): same pattern with `UNIF_PAR_THRESHOLD = 1024`.
+  - `is_multi` path remains serial (variable output per tuple — harder to parallelize).
+  - Fresh stack per rayon task; `eval_bytecode` is pure.
 
-### Phase 3: Scaling Audit — QUEUED
-- [ ] Verify thread pool behavior under high core count.
-- [ ] Ensure no deadlocks from nested Rayon calls.
-- [ ] Final verification with `wiki_pagerank` benchmark.
+### Phase 3: Scaling Audit — DONE (commit `c025fea5`)
+- **Nested rayon**: `prog.par_iter()` in `eval.rs` predates our changes. Rayon's work-stealing
+  handles nested `par_iter` safely (no deadlock). Nested parallelism may compete for threads
+  but never starves (calling thread participates in inner work).
+- **Thread pool**: global default (num_cpus) is appropriate; no `ThreadPoolBuilder` needed.
+- **wiki_pagerank benchmark**: unaffected (exercises fixed-rule graph algos, not join/filter).
+- **Correctness tests added**: 3 tests cover each parallel path at/above threshold:
+  - `test_parallel_filter_correctness` — 2000 rows, filter, verify 1000 even results
+  - `test_parallel_unification_correctness` — 2000 rows, bind doubled=n*2, verify all
+  - `test_parallel_join_correctness` — 600-row right side, verify 50 join results
 
-## Track 008 — QUEUED
+## Track 008 — NEXT
 
 ### Phase 1: TempStore Optimization
 - [ ] Profile `RegularTempStore`; implement `HashSet`-based dedup in `temp_store.rs`.
