@@ -2453,6 +2453,7 @@ pub(crate) fn op_now(_args: &[DataValue]) -> Result<DataValue> {
     ))
 }
 
+/// Returns the current validity timestamp.
 pub fn current_validity() -> ValidityTs {
     #[cfg(not(target_arch = "wasm32"))]
     let ts_micros = {
@@ -2527,6 +2528,7 @@ pub(crate) fn str2vld(s: &str) -> Result<ValidityTs> {
 define_op!(OP_RAND_UUID_V1, 0, false);
 pub(crate) fn op_rand_uuid_v1(_args: &[DataValue]) -> Result<DataValue> {
     let mut rng = rand::thread_rng();
+    #[allow(deprecated)]
     let uuid_ctx = uuid::v1::Context::new(rng.gen());
     #[cfg(target_arch = "wasm32")]
     let ts = {

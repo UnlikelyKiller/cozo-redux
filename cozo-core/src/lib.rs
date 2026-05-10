@@ -33,13 +33,12 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 #[allow(unused_imports)]
-use std::time::Instant;
+use web_time::Instant;
 
 use crossbeam::channel::{bounded, Receiver, Sender};
 use data::functions::current_validity;
-use lazy_static::lazy_static;
 pub use miette::Error;
 use miette::Report;
 #[allow(unused_imports)]
@@ -84,13 +83,21 @@ pub use crate::runtime::db::Poison;
 pub use crate::runtime::db::ScriptMutability;
 pub use crate::runtime::db::TransactionPayload;
 
+/// Core data structures and logic.
 pub mod data;
+/// Implementations of fixed rules.
 pub(crate) mod fixed_rule;
+/// Full-text search implementation.
 pub(crate) mod fts;
+/// Query parsing and AST.
 pub mod parse;
+/// Query planning and execution.
 pub(crate) mod query;
+/// Runtime engine and database state.
 pub(crate) mod runtime;
+/// Storage engine traits and implementations.
 pub(crate) mod storage;
+/// Shared utilities.
 pub(crate) mod utils;
 
 /// A dispatcher for concrete storage implementations, wrapping [Db]. This is done so that
@@ -247,17 +254,14 @@ impl DbInstance {
         params: BTreeMap<String, DataValue>,
         mutability: ScriptMutability,
     ) -> JsonValue {
-        #[cfg(not(target_arch = "wasm32"))]
         let start = Instant::now();
 
         match self.run_script(payload, params, mutability) {
             Ok(named_rows) => {
                 let mut j_val = named_rows.into_json();
-                #[cfg(not(target_arch = "wasm32"))]
                 let took = start.elapsed().as_secs_f64();
                 let map = j_val.as_object_mut().unwrap();
                 map.insert("ok".to_string(), json!(true));
-                #[cfg(not(target_arch = "wasm32"))]
                 map.insert("took".to_string(), json!(took));
 
                 j_val
@@ -654,11 +658,11 @@ pub fn format_error_as_json(mut err: Report, source: Option<&str>) -> JsonValue 
     json
 }
 
-lazy_static! {
-    static ref TEXT_ERR_HANDLER: GraphicalReportHandler = miette::GraphicalReportHandler::new()
-        .with_theme(GraphicalTheme {
-            characters: ThemeCharacters::unicode(),
-            styles: ThemeStyles::ansi()
-        });
-    static ref JSON_ERR_HANDLER: JSONReportHandler = miette::JSONReportHandler::new();
-}
+static TEXT_ERR_HANDLER: LazyLock<GraphicalReportHandler> = LazyLock::new(|| {
+    miette::GraphicalReportHandler::new().with_theme(GraphicalTheme {
+        characters: ThemeCharacters::unicode(),
+        styles: ThemeStyles::ansi(),
+    })
+});
+static JSON_ERR_HANDLER: LazyLock<JSONReportHandler> =
+    LazyLock::new(miette::JSONReportHandler::new);

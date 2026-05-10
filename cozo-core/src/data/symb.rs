@@ -73,6 +73,7 @@ impl Debug for Symbol {
 }
 
 impl Symbol {
+    /// Creates a new symbol with the given name and source span.
     pub fn new(name: impl Into<SmartString<LazyCompact>>, span: SourceSpan) -> Self {
         Self {
             name: name.into(),
@@ -104,4 +105,5 @@ impl Symbol {
     }
 }
 
+/// The symbol used for the entry point of a program.
 pub const PROG_ENTRY: &str = "?";

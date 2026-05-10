@@ -41,4 +41,3 @@ io-uring = ["cozo/io-uring"]
 jni = "0.21.1"
 # , features = ["compact"]
 cozo = { version = "0.7.6", path = "../cozo-core", default_features = false, features = ["compact"] }
-lazy_static = "1.4.0"

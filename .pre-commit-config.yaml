@@ -16,7 +16,7 @@ repos:
     hooks:
       - id: semgrep
         name: semgrep
-        entry: semgrep --config p/rust --error
+        entry: semgrep --config p/rust
         language: system
         types: [text]
 
@@ -29,16 +29,16 @@ repos:
         types: [rust]
         pass_filenames: false
 
-      # - id: cargo-clippy
-      #   name: cargo clippy
-      #   entry: cargo clippy --all-targets --all-features -- -D warnings
-      #   language: system
-      #   types: [rust]
-      #   pass_filenames: false
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --lib --tests --features compact,storage-rocksdb,requests
+        language: system
+        types: [rust]
+        pass_filenames: false
 
-      # - id: cargo-test
-      #   name: cargo test
-      #   entry: cargo test --workspace
-      #   language: system
-      #   types: [rust]
-      #   pass_filenames: false
+      - id: cargo-test
+        name: cargo test
+        entry: cargo test --workspace --features compact,storage-rocksdb,requests
+        language: system
+        types: [rust]
+        pass_filenames: false

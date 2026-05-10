@@ -46,16 +46,22 @@ pub(crate) enum ReturnMutation {
     Returning,
 }
 
+/// Options for query output, including limits, offsets, and sorting.
 #[derive(Clone, PartialEq, Default)]
 pub struct QueryOutOptions {
+    /// The maximum number of rows to return.
     pub limit: Option<usize>,
+    /// The number of rows to skip.
     pub offset: Option<usize>,
     /// Terminate query with an error if it exceeds this many seconds.
     pub timeout: Option<f64>,
     /// Sleep after performing the query for this number of seconds. Ignored in WASM.
     pub sleep: Option<f64>,
+    /// Sorting directions for specified symbols.
     pub sorters: Vec<(Symbol, SortDir)>,
+    /// Optional relation to store the results in.
     pub store_relation: Option<(InputRelationHandle, RelationOp, ReturnMutation)>,
+    /// Optional assertion to perform on the query results.
     pub assertion: Option<QueryAssertion>,
 }
 
@@ -185,22 +191,35 @@ impl QueryOutOptions {
     }
 }
 
+/// Sorting direction.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SortDir {
+    /// Ascending order.
     Asc,
+    /// Descending order.
     Dsc,
 }
 
+/// Operations that can be performed on a relation.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum RelationOp {
+    /// Create the relation if it doesn't exist.
     Create,
+    /// Replace the relation's content.
     Replace,
+    /// Put data into the relation (upsert).
     Put,
+    /// Insert data into the relation.
     Insert,
+    /// Update existing data in the relation.
     Update,
+    /// Remove data from the relation.
     Rm,
+    /// Delete the relation.
     Delete,
+    /// Ensure the relation exists.
     Ensure,
+    /// Ensure the relation does not exist.
     EnsureNot,
 }
 
@@ -368,11 +387,16 @@ impl Debug for MagicFixedRuleApply {
     }
 }
 
+/// Arguments passed to a fixed rule.
 #[derive(Clone)]
 pub enum FixedRuleArg {
+    /// An in-memory relation argument.
     InMem {
+        /// The name of the relation.
         name: Symbol,
+        /// The bindings for the relation.
         bindings: Vec<Symbol>,
+        /// The source span of the argument.
         span: SourceSpan,
     },
     Stored {
@@ -381,10 +405,15 @@ pub enum FixedRuleArg {
         valid_at: Option<ValidityTs>,
         span: SourceSpan,
     },
+    /// A stored relation argument with named fields.
     NamedStored {
+        /// The name of the relation.
         name: Symbol,
+        /// The named bindings for the relation.
         bindings: BTreeMap<SmartString<LazyCompact>, Symbol>,
+        /// Optional validity timestamp.
         valid_at: Option<ValidityTs>,
+        /// The source span of the argument.
         span: SourceSpan,
     },
 }
@@ -884,11 +913,16 @@ impl MagicSymbol {
     }
 }
 
+/// Represents a rule in the input program.
 #[derive(Debug, Clone)]
 pub struct InputInlineRule {
+    /// The head symbols of the rule.
     pub head: Vec<Symbol>,
+    /// Optional aggregations applied to the head.
     pub aggr: Vec<Option<(Aggregation, Vec<DataValue>)>>,
+    /// The atoms in the body of the rule.
     pub body: Vec<InputAtom>,
+    /// The source span of the rule.
     pub span: SourceSpan,
 }
 
@@ -928,47 +962,71 @@ impl MagicInlineRule {
     }
 }
 
+
+/// Represents an atom in the input Datalog program.
 #[derive(Clone)]
 pub enum InputAtom {
+    /// A rule application atom.
     Rule {
         inner: InputRuleApplyAtom,
     },
+    /// A named field relation application atom.
     NamedFieldRelation {
         inner: InputNamedFieldRelationApplyAtom,
     },
+    /// A relation application atom.
     Relation {
         inner: InputRelationApplyAtom,
     },
+    /// A predicate expression.
     Predicate {
         inner: Expr,
     },
+    /// A negated atom.
     Negation {
+        /// The inner atom to negate.
         inner: Box<InputAtom>,
+        /// The source span of the negation.
         span: SourceSpan,
     },
+    /// A conjunction of atoms.
     Conjunction {
+        /// The inner atoms in the conjunction.
         inner: Vec<InputAtom>,
+        /// The source span of the conjunction.
         span: SourceSpan,
     },
+    /// A disjunction of atoms.
     Disjunction {
+        /// The inner atoms in the disjunction.
         inner: Vec<InputAtom>,
+        /// The source span of the disjunction.
         span: SourceSpan,
     },
     /// `x = y` or `x in y`
     Unification {
+        /// The unification operation.
         inner: Unification,
     },
+    /// A vector or full-text search atom.
     Search {
+        /// The search parameters.
         inner: SearchInput,
     },
 }
 
+/// Parameters for a search operation (HNSW, FTS, LSH).
 #[derive(Clone)]
 pub struct SearchInput {
+    /// The relation to search in.
     pub relation: Symbol,
+    /// The index to use for searching.
     pub index: Symbol,
+    /// The bindings for the search.
     pub bindings: BTreeMap<SmartString<LazyCompact>, Expr>,
+    /// The parameters for the search.
     pub parameters: BTreeMap<SmartString<LazyCompact>, Expr>,
+    /// The source span of the search input.
     pub span: SourceSpan,
 }
 
@@ -1749,26 +1807,40 @@ pub(crate) enum MagicAtom {
     LshSearch(LshSearch),
 }
 
+/// Represents an application of a rule in the input program.
 #[derive(Clone, Debug)]
 pub struct InputRuleApplyAtom {
+    /// The name of the rule being applied.
     pub name: Symbol,
+    /// The arguments passed to the rule.
     pub args: Vec<Expr>,
+    /// The source span of the rule application.
     pub span: SourceSpan,
 }
 
+/// Represents an application of a relation with named fields in the input program.
 #[derive(Clone, Debug)]
 pub struct InputNamedFieldRelationApplyAtom {
+    /// The name of the relation.
     pub name: Symbol,
+    /// The named arguments passed to the relation.
     pub args: BTreeMap<SmartString<LazyCompact>, Expr>,
+    /// Optional validity timestamp for time-travel queries.
     pub valid_at: Option<ValidityTs>,
+    /// The source span of the relation application.
     pub span: SourceSpan,
 }
 
+/// Represents an application of a relation in the input program.
 #[derive(Clone, Debug)]
 pub struct InputRelationApplyAtom {
+    /// The name of the relation.
     pub name: Symbol,
+    /// The positional arguments passed to the relation.
     pub args: Vec<Expr>,
+    /// Optional validity timestamp for time-travel queries.
     pub valid_at: Option<ValidityTs>,
+    /// The source span of the relation application.
     pub span: SourceSpan,
 }
 
@@ -1802,13 +1874,16 @@ pub(crate) struct MagicRelationApplyAtom {
     pub(crate) span: SourceSpan,
 }
 
+/// Represents a unification operation (`=` or `in`).
 #[derive(Clone, Debug)]
 pub struct Unification {
     /// Symbol to bind expression to.
     pub binding: Symbol,
+    /// The expression to unify with.
     pub expr: Expr,
     /// If false, `=`, if true, `in`. If true, one row is created for each value in the list in `expr`.
     pub one_many_unif: bool,
+    /// The source span of the unification.
     pub span: SourceSpan,
 }
 

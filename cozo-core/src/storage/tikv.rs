@@ -8,10 +8,9 @@
 
 use std::iter;
 use std::ops::Bound::{Excluded, Included};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use itertools::Itertools;
-use lazy_static::lazy_static;
 use miette::{miette, IntoDiagnostic, Result};
 use tikv_client::{RawClient, Transaction, TransactionClient};
 use tokio::runtime::Runtime;
@@ -37,15 +36,13 @@ pub fn new_cozo_tikv(pd_endpoints: Vec<String>, optimistic: bool) -> Result<Db<T
     Ok(ret)
 }
 
-lazy_static! {
-    static ref RT: Runtime = {
-        tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
-            .enable_all()
-            .build()
-            .expect("starting Tokio runtime failed")
-    };
-}
+static RT: LazyLock<Runtime> = LazyLock::new(|| {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .expect("starting Tokio runtime failed")
+});
 
 /// Storage engine based on TiKV
 #[derive(Clone)]

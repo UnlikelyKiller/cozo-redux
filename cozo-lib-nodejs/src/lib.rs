@@ -7,10 +7,9 @@
  */
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use crossbeam::channel::Sender;
-use lazy_static::lazy_static;
 use miette::{miette, Result};
 use neon::prelude::*;
 use neon::types::buffer::TypedArray;
@@ -275,9 +274,7 @@ struct Handles {
     txs: Mutex<BTreeMap<u32, Arc<MultiTransaction>>>,
 }
 
-lazy_static! {
-    static ref HANDLES: Handles = Handles::default();
-}
+static HANDLES: LazyLock<Handles> = LazyLock::new(Handles::default);
 
 fn open_db(mut cx: FunctionContext) -> JsResult<JsNumber> {
     let engine = cx.argument::<JsString>(0)?.value(&mut cx);

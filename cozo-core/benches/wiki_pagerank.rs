@@ -14,36 +14,37 @@ use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::BufRead;
 use std::path::PathBuf;
-use std::time::Instant;
+use web_time::Instant;
 use std::{env, io};
 use test::Bencher;
 
-use lazy_static::{initialize, lazy_static};
+use std::sync::LazyLock;
 
 use cozo::{DataValue, DbInstance, NamedRows};
 
-lazy_static! {
-    static ref TEST_DB: DbInstance = {
-        let data_dir = PathBuf::from(env::var("COZO_BENCH_WIKI_DIR").unwrap());
+static TEST_DB: LazyLock<DbInstance> = LazyLock::new(|| {
+    let data_dir = PathBuf::from(env::var("COZO_BENCH_WIKI_DIR").unwrap());
 
-        let db = DbInstance::new("mem", "", "").unwrap();
-        let mut file_path = data_dir.clone();
-        file_path.push("wikipedia-articles.el");
+    let db = DbInstance::new("mem", "", "").unwrap();
+    let mut file_path = data_dir.clone();
+    file_path.push("wikipedia-articles.el");
 
-        // dbg!(&db_kind);
-        // dbg!(&data_dir);
-        // dbg!(&file_path);
-        // dbg!(&data_size);
-        // dbg!(&n_threads);
+    // dbg!(&db_kind);
+    // dbg!(&data_dir);
+    // dbg!(&file_path);
+    // dbg!(&data_size);
+    // dbg!(&n_threads);
 
-        db.run_script(":create article {fr: Int, to: Int}",
-            Default::default(),
-        ).unwrap();
+    db.run_script(
+        ":create article {fr: Int, to: Int}",
+        Default::default(),
+        cozo::ScriptMutability::Mutable,
+    )
+    .unwrap();
+    let file = File::open(&file_path).unwrap();
+    let mut articles = vec![];
 
-        let file = File::open(&file_path).unwrap();
-        let mut articles = vec![];
-
-        let import_time = Instant::now();
+    let import_time = Instant::now();
         for line in io::BufReader::new(file).lines() {
             let line = line.unwrap();
             if line.len() < 2 {
@@ -64,28 +65,32 @@ lazy_static! {
         })])).unwrap();
         dbg!(import_time.elapsed());
         db
-    };
-}
+    });
 
 #[bench]
 fn wikipedia_pagerank(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(|| {
         TEST_DB
-            .run_script("?[id, rank] <~ PageRank(*article[])", Default::default())
+            .run_script(
+                "?[id, rank] <~ PageRank(*article[])",
+                Default::default(),
+                cozo::ScriptMutability::Immutable,
+            )
             .unwrap()
     });
 }
 
 #[bench]
 fn wikipedia_louvain(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(|| {
         let start = Instant::now();
         TEST_DB
             .run_script(
                 "?[grp, idx] <~ CommunityDetectionLouvain(*article[])",
                 Default::default(),
+                cozo::ScriptMutability::Immutable,
             )
             .unwrap();
         dbg!(start.elapsed());

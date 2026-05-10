@@ -6,15 +6,18 @@ Master registry for development tracks and architectural upgrades.
 
 | Track ID | Status | Objective | Owner |
 | :--- | :--- | :--- | :--- |
-| **001** | `[ ]` | Infrastructure & Security Patches (`lz4_flex`, `lru`) | Antigravity |
-| **002** | `[ ]` | Unmaintained Hygiene (`adler`, `fxhash`) | Antigravity |
-| **003** | `[ ]` | Platform Modernization (`instant` -> `web-time`) | Antigravity |
-| **004** | `[ ]` | Serialization Overhaul (`bincode` -> `postcard`) | Antigravity |
-| **005** | `[/]` | Security Infrastructure (Semgrep, Gitleaks, Pre-commit) | Antigravity |
+| **001** | `[x]` | Infrastructure & Security Patches (`lz4_flex`, `tokio`) | Antigravity |
+| **002** | `[x]` | Unmaintained Hygiene (`lazy_static`, `adler`, `fxhash`) | Antigravity |
+| **003** | `[x]` | Platform Modernization (`instant` -> `web-time`) | Antigravity |
+| **004** | `[x]` | Serialization Overhaul (`bincode` -> `postcard`) | Antigravity |
+| **005** | `[x]` | Security Infrastructure (Semgrep, Gitleaks, Pre-commit) | Antigravity |
 
 ## Completed Tracks
 
-*None yet.*
+- **Track 005**: Security Infrastructure & Build Stabilization.
+- **Track 002**: Unmaintained Hygiene Phase 1 & 2.
+- **Track 004**: Serialization Overhaul (`swapvec` & `fast2s`).
+- **Track 001**: Security patches for `lz4_flex` and `tokio`.
 
 ---
 *Generated: 2026-05-10*

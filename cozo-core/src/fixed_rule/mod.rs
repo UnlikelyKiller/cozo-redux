@@ -7,7 +7,7 @@
  */
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use crossbeam::channel::{bounded, Receiver, Sender};
 #[allow(unused_imports)]
@@ -15,7 +15,6 @@ use either::{Left, Right};
 #[cfg(feature = "graph-algo")]
 use graph::prelude::{CsrLayout, DirectedCsrGraph, GraphBuilder};
 use itertools::Itertools;
-use lazy_static::lazy_static;
 use miette::IntoDiagnostic;
 #[allow(unused_imports)]
 use miette::{bail, ensure, Diagnostic, Report, Result};
@@ -702,8 +701,8 @@ pub(crate) struct FixedRuleHandle {
     pub(crate) name: Symbol,
 }
 
-lazy_static! {
-    pub(crate) static ref DEFAULT_FIXED_RULES: BTreeMap<String, Arc<Box<dyn FixedRule>>> = {
+pub(crate) static DEFAULT_FIXED_RULES: LazyLock<BTreeMap<String, Arc<Box<dyn FixedRule>>>> =
+    LazyLock::new(|| {
         BTreeMap::from([
             #[cfg(feature = "graph-algo")]
             (
@@ -832,8 +831,7 @@ lazy_static! {
                 Arc::<Box<dyn FixedRule>>::new(Box::new(Constant)),
             ),
         ])
-    };
-}
+    });
 
 impl FixedRuleHandle {
     pub(crate) fn new(name: &str, span: SourceSpan) -> Self {

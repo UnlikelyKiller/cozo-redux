@@ -9,17 +9,16 @@
 
 use std::env;
 use std::str::FromStr;
-use std::time::Instant;
+use web_time::Instant;
 
 use approx::AbsDiffEq;
 use env_logger::Env;
-use lazy_static::{initialize, lazy_static};
+use std::sync::LazyLock;
 use serde_json::json;
 
 use cozo::DbInstance;
 
-lazy_static! {
-    static ref TEST_DB: DbInstance = {
+static TEST_DB: LazyLock<DbInstance> = LazyLock::new(|| {
         env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
         let creation = Instant::now();
         let path = "_test_air_routes";
@@ -148,12 +147,11 @@ lazy_static! {
 
         dbg!(init.elapsed());
         db
-    };
-}
+    });
 
 #[test]
 fn dfs() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let dfs = Instant::now();
     let rows = TEST_DB
         .run_default(
@@ -176,7 +174,7 @@ fn dfs() {
 
 #[test]
 fn empty() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let res = TEST_DB.run_default(
         r#"
         ?[id, name] <- [[]]
@@ -187,7 +185,7 @@ fn empty() {
 
 #[test]
 fn parallel_counts() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let res = TEST_DB
         .run_default(
             r#"
@@ -210,7 +208,7 @@ fn parallel_counts() {
 
 #[test]
 fn bfs() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let bfs = Instant::now();
     let rows = TEST_DB
         .run_default(
@@ -234,7 +232,7 @@ fn bfs() {
 
 #[test]
 fn scc() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let scc = Instant::now();
     let _ = TEST_DB
         .run_default(
@@ -250,7 +248,7 @@ fn scc() {
 
 #[test]
 fn cc() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let cc = Instant::now();
     let _ = TEST_DB
         .run_default(
@@ -266,7 +264,7 @@ fn cc() {
 
 #[test]
 fn astar() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let astar = Instant::now();
     let _ = TEST_DB.run_default(r#"
         code_lat_lon[code, lat, lon] := *airport{code, lat, lon}
@@ -279,7 +277,7 @@ fn astar() {
 
 #[test]
 fn deg_centrality() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let deg_centrality = Instant::now();
     TEST_DB
         .run_default(
@@ -297,7 +295,7 @@ fn deg_centrality() {
 
 #[test]
 fn dijkstra() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let dijkstra = Instant::now();
 
     TEST_DB
@@ -317,7 +315,7 @@ fn dijkstra() {
 
 #[test]
 fn yen() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let yen = Instant::now();
 
     TEST_DB
@@ -336,7 +334,7 @@ fn yen() {
 
 #[test]
 fn starts_with() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let starts_with = Instant::now();
     let rows = TEST_DB
         .run_default(
@@ -367,7 +365,7 @@ fn starts_with() {
 
 #[test]
 fn range_check() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let range_check = Instant::now();
 
     let rows = TEST_DB
@@ -389,7 +387,7 @@ fn range_check() {
 
 #[test]
 fn no_airports() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let no_airports = Instant::now();
 
     let rows = TEST_DB
@@ -416,7 +414,7 @@ fn no_airports() {
 
 #[test]
 fn no_routes_airport() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let no_routes_airports = Instant::now();
 
     let rows = TEST_DB
@@ -444,7 +442,7 @@ fn no_routes_airport() {
 
 #[test]
 fn runway_distribution() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let no_routes_airports = Instant::now();
 
     let rows = TEST_DB
@@ -473,7 +471,7 @@ fn runway_distribution() {
 
 #[test]
 fn most_out_routes() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let most_out_routes = Instant::now();
 
     let rows = TEST_DB
@@ -505,7 +503,7 @@ fn most_out_routes() {
 
 #[test]
 fn most_out_routes_again() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let most_out_routes_again = Instant::now();
 
     let rows = TEST_DB
@@ -537,7 +535,7 @@ fn most_out_routes_again() {
 
 #[test]
 fn most_routes() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let most_routes = Instant::now();
 
     let rows = TEST_DB
@@ -568,7 +566,7 @@ fn most_routes() {
 
 #[test]
 fn airport_with_one_route() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let airport_with_one_route = Instant::now();
 
     let rows = TEST_DB
@@ -587,7 +585,7 @@ fn airport_with_one_route() {
 
 #[test]
 fn single_runway_with_most_routes() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let single_runway_with_most_routes = Instant::now();
 
     let rows = TEST_DB
@@ -620,7 +618,7 @@ fn single_runway_with_most_routes() {
 
 #[test]
 fn most_routes_in_canada() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let most_routes_in_canada = Instant::now();
 
     let rows = TEST_DB
@@ -656,7 +654,7 @@ fn most_routes_in_canada() {
 
 #[test]
 fn uk_count() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let uk_count = Instant::now();
 
     let rows = TEST_DB
@@ -677,7 +675,7 @@ fn uk_count() {
 
 #[test]
 fn airports_by_country() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let airports_by_country = Instant::now();
 
     let rows = TEST_DB
@@ -730,7 +728,7 @@ fn airports_by_country() {
 
 #[test]
 fn n_airports_by_continent() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let n_airports_by_continent = Instant::now();
 
     let rows = TEST_DB
@@ -756,7 +754,7 @@ fn n_airports_by_continent() {
 
 #[test]
 fn routes_per_airport() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let routes_per_airport = Instant::now();
 
     let rows = TEST_DB
@@ -781,7 +779,7 @@ fn routes_per_airport() {
 
 #[test]
 fn airports_by_route_number() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let airports_by_route_number = Instant::now();
 
     let rows = TEST_DB
@@ -800,7 +798,7 @@ fn airports_by_route_number() {
 
 #[test]
 fn out_from_aus() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let out_from_aus = Instant::now();
 
     let rows = TEST_DB
@@ -824,7 +822,7 @@ fn out_from_aus() {
 
 #[test]
 fn const_return() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let const_return = Instant::now();
 
     let rows = TEST_DB
@@ -842,7 +840,7 @@ fn const_return() {
 
 #[test]
 fn multi_res() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let multi_res = Instant::now();
 
     let rows = TEST_DB
@@ -870,7 +868,7 @@ fn multi_res() {
 
 #[test]
 fn multi_unification() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let multi_unification = Instant::now();
 
     let rows = TEST_DB
@@ -893,7 +891,7 @@ fn multi_unification() {
 
 #[test]
 fn num_routes_from_eu_to_us() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let num_routes_from_eu_to_us = Instant::now();
 
     let rows = TEST_DB
@@ -915,7 +913,7 @@ fn num_routes_from_eu_to_us() {
 
 #[test]
 fn num_airports_in_us_with_routes_from_eu() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let num_airports_in_us_with_routes_from_eu = Instant::now();
 
     let rows = TEST_DB
@@ -935,7 +933,7 @@ fn num_airports_in_us_with_routes_from_eu() {
 
 #[test]
 fn num_routes_in_us_airports_from_eu() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let num_routes_in_us_airports_from_eu = Instant::now();
 
     let rows = TEST_DB
@@ -966,7 +964,7 @@ fn num_routes_in_us_airports_from_eu() {
 
 #[test]
 fn routes_from_eu_to_us_starting_with_l() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let routes_from_eu_to_us_starting_with_l = Instant::now();
 
     let rows = TEST_DB
@@ -1003,7 +1001,7 @@ fn routes_from_eu_to_us_starting_with_l() {
 
 #[test]
 fn len_of_names_count() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let len_of_names_count = Instant::now();
 
     let rows = TEST_DB
@@ -1026,7 +1024,7 @@ fn len_of_names_count() {
 
 #[test]
 fn group_count_by_out() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let group_count_by_out = Instant::now();
 
     let rows = TEST_DB
@@ -1055,7 +1053,7 @@ fn group_count_by_out() {
 
 #[test]
 fn mean_group_count() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let mean_group_count = Instant::now();
 
     let rows = TEST_DB
@@ -1077,7 +1075,7 @@ fn mean_group_count() {
 
 #[test]
 fn n_routes_from_london_uk() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let n_routes_from_london_uk = Instant::now();
 
     let rows = TEST_DB
@@ -1101,7 +1099,7 @@ fn n_routes_from_london_uk() {
 
 #[test]
 fn reachable_from_london_uk_in_two_hops() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let reachable_from_london_uk_in_two_hops = Instant::now();
 
     let rows = TEST_DB
@@ -1121,7 +1119,7 @@ fn reachable_from_london_uk_in_two_hops() {
 
 #[test]
 fn routes_within_england() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let routes_within_england = Instant::now();
 
     let rows = TEST_DB
@@ -1155,7 +1153,7 @@ fn routes_within_england() {
 
 #[test]
 fn routes_within_england_time_no_dup() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let routes_within_england_time_no_dup = Instant::now();
 
     let rows = TEST_DB
@@ -1186,7 +1184,7 @@ fn routes_within_england_time_no_dup() {
 
 #[test]
 fn hard_route_finding() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let hard_route_finding = Instant::now();
 
     let rows = TEST_DB
@@ -1215,7 +1213,7 @@ fn hard_route_finding() {
 
 #[test]
 fn na_from_india() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let na_from_india = Instant::now();
 
     let rows = TEST_DB
@@ -1245,7 +1243,7 @@ fn na_from_india() {
 
 #[test]
 fn eu_cities_reachable_from_fll() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let eu_cities_reachable_from_fll = Instant::now();
 
     let rows = TEST_DB
@@ -1271,7 +1269,7 @@ fn eu_cities_reachable_from_fll() {
 
 #[test]
 fn clt_to_eu_or_sa() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let clt_to_eu_or_sa = Instant::now();
 
     let rows = TEST_DB
@@ -1297,7 +1295,7 @@ fn clt_to_eu_or_sa() {
 
 #[test]
 fn london_to_us() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let london_to_us = Instant::now();
 
     let rows = TEST_DB
@@ -1331,7 +1329,7 @@ fn london_to_us() {
 
 #[test]
 fn tx_to_ny() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let tx_to_ny = Instant::now();
 
     let rows = TEST_DB
@@ -1360,7 +1358,7 @@ fn tx_to_ny() {
 
 #[test]
 fn denver_to_mexico() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let denver_to_mexico = Instant::now();
 
     let rows = TEST_DB
@@ -1387,7 +1385,7 @@ fn denver_to_mexico() {
 
 #[test]
 fn three_cities() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let three_cities = Instant::now();
 
     let rows = TEST_DB
@@ -1418,7 +1416,7 @@ fn three_cities() {
 
 #[test]
 fn long_distance_from_lgw() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let long_distance_from_lgw = Instant::now();
 
     let rows = TEST_DB
@@ -1453,7 +1451,7 @@ fn long_distance_from_lgw() {
 
 #[test]
 fn long_routes_one_dir() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let long_routes_one_dir = Instant::now();
 
     let rows = TEST_DB
@@ -1485,7 +1483,7 @@ fn long_routes_one_dir() {
 
 #[test]
 fn longest_routes() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let longest_routes = Instant::now();
 
     let rows = TEST_DB
@@ -1516,7 +1514,7 @@ fn longest_routes() {
 
 #[test]
 fn longest_routes_from_each_airports() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let longest_routes_from_each_airports = Instant::now();
 
     let rows = TEST_DB
@@ -1544,7 +1542,7 @@ fn longest_routes_from_each_airports() {
 
 #[test]
 fn total_distance_from_three_cities() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let total_distance_from_three_cities = Instant::now();
 
     let rows = TEST_DB
@@ -1566,7 +1564,7 @@ fn total_distance_from_three_cities() {
 
 #[test]
 fn total_distance_within_three_cities() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let total_distance_within_three_cities = Instant::now();
 
     let rows = TEST_DB
@@ -1588,7 +1586,7 @@ fn total_distance_within_three_cities() {
 
 #[test]
 fn specific_distance() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let specific_distance = Instant::now();
 
     let rows = TEST_DB
@@ -1609,7 +1607,7 @@ fn specific_distance() {
 
 #[test]
 fn n_routes_between() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let n_routes_between = Instant::now();
 
     let rows = TEST_DB
@@ -1632,7 +1630,7 @@ fn n_routes_between() {
 
 #[test]
 fn one_stop_distance() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let one_stop_distance = Instant::now();
 
     let rows = TEST_DB
@@ -1662,7 +1660,7 @@ fn one_stop_distance() {
 
 #[test]
 fn airport_most_routes() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let airport_most_routes = Instant::now();
 
     let rows = TEST_DB
@@ -1690,7 +1688,7 @@ fn airport_most_routes() {
 
 #[test]
 fn north_of_77() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let north_of_77 = Instant::now();
 
     let rows = TEST_DB
@@ -1711,7 +1709,7 @@ fn north_of_77() {
 
 #[test]
 fn greenwich_meridian() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let greenwich_meridian = Instant::now();
 
     let rows = TEST_DB
@@ -1732,7 +1730,7 @@ fn greenwich_meridian() {
 
 #[test]
 fn box_around_heathrow() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let box_around_heathrow = Instant::now();
 
     let rows = TEST_DB
@@ -1756,7 +1754,7 @@ fn box_around_heathrow() {
 
 #[test]
 fn dfw_by_region() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let dfw_by_region = Instant::now();
 
     let rows = TEST_DB
@@ -1787,7 +1785,7 @@ fn dfw_by_region() {
 
 #[test]
 fn great_circle_distance() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let great_circle_distance = Instant::now();
 
     let rows = TEST_DB
@@ -1810,7 +1808,7 @@ fn great_circle_distance() {
 
 #[test]
 fn aus_to_edi() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let aus_to_edi = Instant::now();
 
     let rows = TEST_DB
@@ -1838,7 +1836,7 @@ fn aus_to_edi() {
 
 #[test]
 fn reachable_from_lhr() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let reachable_from_lhr = Instant::now();
 
     let rows = TEST_DB
@@ -1880,7 +1878,7 @@ fn reachable_from_lhr() {
 
 #[test]
 fn furthest_from_lhr() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let furthest_from_lhr = Instant::now();
 
     let rows = TEST_DB
@@ -1919,7 +1917,7 @@ fn furthest_from_lhr() {
 
 #[test]
 fn skip_limit() {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let rows = TEST_DB
         .run_default(
             r#"

@@ -12,9 +12,7 @@ use std::collections::BTreeMap;
 use std::ffi::{c_char, CStr, CString};
 use std::ptr::null_mut;
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::Mutex;
-
-use lazy_static::lazy_static;
+use std::sync::{LazyLock, Mutex};
 
 use cozo::*;
 
@@ -23,12 +21,10 @@ struct Handles {
     dbs: Mutex<BTreeMap<i32, DbInstance>>,
 }
 
-lazy_static! {
-    static ref HANDLES: Handles = Handles {
-        current: Default::default(),
-        dbs: Mutex::new(Default::default())
-    };
-}
+static HANDLES: LazyLock<Handles> = LazyLock::new(|| Handles {
+    current: Default::default(),
+    dbs: Mutex::new(Default::default()),
+});
 
 /// Open a database.
 ///

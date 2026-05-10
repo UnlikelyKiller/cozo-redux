@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 
 use itertools::Itertools;
-use lazy_static::lazy_static;
+use std::sync::LazyLock;
 use miette::{bail, ensure, Diagnostic, Result};
 use pest::pratt_parser::{Op, PrattParser};
 use smartstring::{LazyCompact, SmartString};
@@ -25,30 +25,28 @@ use crate::data::symb::Symbol;
 use crate::data::value::DataValue;
 use crate::parse::{ExtractSpan, Pair, Rule, SourceSpan};
 
-lazy_static! {
-    static ref PRATT_PARSER: PrattParser<Rule> = {
-        use pest::pratt_parser::Assoc::*;
+static PRATT_PARSER: LazyLock<PrattParser<Rule>> = LazyLock::new(|| {
+    use pest::pratt_parser::Assoc::*;
 
-        PrattParser::new()
-            .op(Op::infix(Rule::op_or, Left))
-            .op(Op::infix(Rule::op_and, Left))
-            .op(Op::infix(Rule::op_gt, Left)
-                | Op::infix(Rule::op_lt, Left)
-                | Op::infix(Rule::op_ge, Left)
-                | Op::infix(Rule::op_le, Left))
-            .op(Op::infix(Rule::op_eq, Left) | Op::infix(Rule::op_ne, Left))
-            .op(Op::infix(Rule::op_mod, Left))
-            .op(Op::infix(Rule::op_add, Left)
-                | Op::infix(Rule::op_sub, Left)
-                | Op::infix(Rule::op_concat, Left))
-            .op(Op::infix(Rule::op_mul, Left) | Op::infix(Rule::op_div, Left))
-            .op(Op::infix(Rule::op_pow, Right))
-            .op(Op::infix(Rule::op_coalesce, Left))
-            .op(Op::prefix(Rule::minus))
-            .op(Op::prefix(Rule::negate))
-            .op(Op::infix(Rule::op_field_access, Left))
-    };
-}
+    PrattParser::new()
+        .op(Op::infix(Rule::op_or, Left))
+        .op(Op::infix(Rule::op_and, Left))
+        .op(Op::infix(Rule::op_gt, Left)
+            | Op::infix(Rule::op_lt, Left)
+            | Op::infix(Rule::op_ge, Left)
+            | Op::infix(Rule::op_le, Left))
+        .op(Op::infix(Rule::op_eq, Left) | Op::infix(Rule::op_ne, Left))
+        .op(Op::infix(Rule::op_mod, Left))
+        .op(Op::infix(Rule::op_add, Left)
+            | Op::infix(Rule::op_sub, Left)
+            | Op::infix(Rule::op_concat, Left))
+        .op(Op::infix(Rule::op_mul, Left) | Op::infix(Rule::op_div, Left))
+        .op(Op::infix(Rule::op_pow, Right))
+        .op(Op::infix(Rule::op_coalesce, Left))
+        .op(Op::prefix(Rule::minus))
+        .op(Op::prefix(Rule::negate))
+        .op(Op::infix(Rule::op_field_access, Left))
+});
 
 #[derive(Debug, Error, Diagnostic)]
 #[error("Invalid expression encountered")]

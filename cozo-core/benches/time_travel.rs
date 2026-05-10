@@ -12,12 +12,12 @@ extern crate test;
 
 use cozo::{DataValue, DbInstance, NamedRows, Validity};
 use itertools::Itertools;
-use lazy_static::{initialize, lazy_static};
+use std::sync::LazyLock;
 use rand::Rng;
 use rayon::prelude::*;
 use std::cmp::max;
 use std::collections::BTreeMap;
-use std::time::Instant;
+use web_time::Instant;
 use test::Bencher;
 
 fn insert_data(db: &DbInstance) {
@@ -127,31 +127,23 @@ fn insert_data(db: &DbInstance) {
     dbg!(insert_tt1000_time.elapsed());
 }
 
-lazy_static! {
-    static ref TEST_DB: DbInstance = {
-        let db_path = "_time_travel_rocks.db";
-        let db = DbInstance::new("rocksdb", db_path, "").unwrap();
-
-        let create_res = db.run_script(
-            r#"
-        {:create plain {k: Int => v}}
-        {:create tt1 {k: Int, vld: Validity => v}}
-        {:create tt10 {k: Int, vld: Validity => v}}
-        {:create tt100 {k: Int, vld: Validity => v}}
-        {:create tt1000 {k: Int, vld: Validity => v}}
-        "#,
-            Default::default(),
-        );
-
-        if create_res.is_ok() {
-            insert_data(&db);
-        } else {
-            println!("database already exists, skip import");
-        }
-
-        db
-    };
-}
+static TEST_DB: LazyLock<DbInstance> = LazyLock::new(|| {
+    let db = DbInstance::new("sqlite", "tt_bench.db", Default::default()).unwrap();
+    db.run_script(
+        r#"
+    {:create plain {k: Int => v: Int}}
+    {:create tt1 {k: Int, vld: Validity => v: Int}}
+    {:create tt10 {k: Int, vld: Validity => v: Int}}
+    {:create tt100 {k: Int, vld: Validity => v: Int}}
+    {:create tt1000 {k: Int, vld: Validity => v: Int}}
+    "#,
+        Default::default(),
+        cozo::ScriptMutability::Mutable,
+    )
+    .unwrap();
+    insert_data(&db);
+    db
+});
 
 fn single_plain_read() {
     let i = rand::thread_rng().gen_range(0..10000);
@@ -159,6 +151,7 @@ fn single_plain_read() {
         .run_script(
             "?[v] := *plain{k: $id, v}",
             BTreeMap::from([("id".to_string(), DataValue::from(i as i64))]),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -170,6 +163,7 @@ fn plain_aggr() {
     ?[sum(v)] := *plain{v}
     "#,
             BTreeMap::default(),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -185,6 +179,7 @@ fn tt_stupid_aggr(k: usize) {
                 k
             ),
             BTreeMap::default(),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -199,6 +194,7 @@ fn tt_travel_aggr(k: usize) {
                 k
             ),
             BTreeMap::default(),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -214,6 +210,7 @@ fn single_tt_read(k: usize) {
                 k
             ),
             BTreeMap::from([("id".to_string(), DataValue::from(i as i64))]),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -229,6 +226,7 @@ fn single_tt_travel_read(k: usize) {
                 k
             ),
             BTreeMap::from([("id".to_string(), DataValue::from(i as i64))]),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }

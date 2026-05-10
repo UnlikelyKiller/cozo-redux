@@ -10,7 +10,7 @@ use crate::fts::ast::{FtsExpr, FtsLiteral, FtsNear};
 use crate::parse::expr::parse_string;
 use crate::parse::{CozoScriptParser, Pair, Rule};
 use itertools::Itertools;
-use lazy_static::lazy_static;
+use std::sync::LazyLock;
 use miette::{IntoDiagnostic, Result};
 use pest::pratt_parser::{Op, PrattParser};
 use pest::Parser;
@@ -128,16 +128,14 @@ fn build_phrase(pair: Pair<'_>) -> Result<FtsLiteral> {
     })
 }
 
-lazy_static! {
-    static ref PRATT_PARSER: PrattParser<Rule> = {
-        use pest::pratt_parser::Assoc::*;
+static PRATT_PARSER: LazyLock<PrattParser<Rule>> = LazyLock::new(|| {
+    use pest::pratt_parser::Assoc::*;
 
-        PrattParser::new()
-            .op(Op::infix(Rule::fts_not, Left))
-            .op(Op::infix(Rule::fts_and, Left))
-            .op(Op::infix(Rule::fts_or, Left))
-    };
-}
+    PrattParser::new()
+        .op(Op::infix(Rule::fts_not, Left))
+        .op(Op::infix(Rule::fts_and, Left))
+        .op(Op::infix(Rule::fts_or, Left))
+});
 
 #[cfg(test)]
 mod tests {

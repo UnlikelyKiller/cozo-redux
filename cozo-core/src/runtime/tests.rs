@@ -871,7 +871,7 @@ fn test_lsh_indexing2() {
         let res = db
             .run_default("?[k] := ~a:lsh{k | query: 'ewiygfspeoighjsfcfxzdfncalsdf', k: 1}")
             .unwrap();
-        assert!(res.rows.len() > 0);
+        assert!(!res.rows.is_empty());
     }
 }
 
@@ -905,7 +905,7 @@ fn test_lsh_indexing3() {
     ~text:lsh{id: id, dup_for: dup_for, | query: "This function first generates 32 random bytes using the os.urandom function. It then base64 encodes these bytes using base64.urlsafe_b64encode, removes the padding, and decodes the result to a string.", }"#,
             )
             .unwrap();
-        assert!(res.rows.len() > 0);
+        assert!(!res.rows.is_empty());
         println!("{}", res.into_json());
     }
 }
@@ -927,7 +927,7 @@ fn filtering() {
     ",
         )
         .unwrap();
-    assert_eq!(0, res.rows.len());
+    assert!(res.rows.is_empty());
 
     let res = db
         .run_default(
@@ -943,7 +943,7 @@ fn filtering() {
     ",
         )
         .unwrap();
-    assert_eq!(0, res.rows.len());
+    assert!(res.rows.is_empty());
 }
 
 #[test]
@@ -965,7 +965,7 @@ fn test_lsh_indexing4() {
         let res = db
             .run_default("?[k] := ~a:lsh{k | query: 'ewiygfspeoighjsfcfxzdfncalsdf', k: 1}")
             .unwrap();
-        assert!(res.rows.len() == 0);
+        assert!(res.rows.is_empty());
     }
 }
 

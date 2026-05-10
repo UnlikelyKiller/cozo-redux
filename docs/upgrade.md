@@ -30,7 +30,7 @@ This document outlines the planned upgrades to address upstream vulnerabilities 
     - **Breaking**: Types are not interchangeable with `std::time::Instant`. Requires import replacement.
 - **`bincode` -> `postcard`**:
     - **CRITICAL BREAKING**: Binary format is incompatible. Data serialized with `bincode` cannot be read by `postcard`.
-    - **Decision**: Use `postcard` for new features/redux; use `wincode` if legacy data compatibility is required.
+    - **Decision**: Migrate to `postcard`. This will be a clean break in binary format, which is acceptable for the `cozo-redux` fork to prioritize safety and embedded-friendliness.
 
 ## 3. Conductor Tracks
 

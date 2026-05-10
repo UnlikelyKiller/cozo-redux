@@ -13,80 +13,87 @@ use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use web_time::Instant;
 use std::{env, io, mem};
 use test::Bencher;
 
-use lazy_static::{initialize, lazy_static};
+use std::sync::LazyLock;
 use rand::Rng;
 use rayon::prelude::*;
 use regex::Regex;
 
 use cozo::{DataValue, DbInstance, NamedRows};
 
-lazy_static! {
-    static ref ITERATIONS: usize = {
-        let size = env::var("COZO_BENCH_ITERATIONS").unwrap_or("100".to_string());
-        size.parse::<usize>().unwrap()
-    };
-    static ref SIZES: (usize, usize) = {
-        let size = env::var("COZO_BENCH_POKEC_SIZE").unwrap_or("medium".to_string());
-        match &size as &str {
-            "small" => (10000, 121716),
-            "medium" => (100000, 1768515),
-            "large" => (1632803, 30622564),
-            _ => panic!()
-        }
-    };
+static ITERATIONS: LazyLock<usize> = LazyLock::new(|| {
+    let size = env::var("COZO_BENCH_ITERATIONS").unwrap_or("100".to_string());
+    size.parse::<usize>().unwrap()
+});
+static SIZES: LazyLock<(usize, usize)> = LazyLock::new(|| {
+    let size = env::var("COZO_BENCH_POKEC_SIZE").unwrap_or("medium".to_string());
+    match &size as &str {
+        "small" => (10000, 121716),
+        "medium" => (100000, 1768515),
+        "large" => (1632803, 30622564),
+        _ => panic!(),
+    }
+});
+static TEST_DB: LazyLock<DbInstance> = LazyLock::new(|| {
+    let data_dir = PathBuf::from(env::var("COZO_BENCH_POKEC_DIR").unwrap());
+    let db_kind = env::var("COZO_TEST_DB_ENGINE").unwrap_or("mem".to_string());
+    let mut db_path = data_dir.clone();
+    let data_size = env::var("COZO_BENCH_POKEC_SIZE").unwrap_or("medium".to_string());
+    let batch_size = env::var("COZO_BENCH_POKEC_BATCH")
+        .unwrap()
+        .parse::<usize>()
+        .unwrap();
+    db_path.push(format!("{}-{}.db", db_kind, data_size));
+    // let _ = std::fs::remove_file(&db_path);
+    // let _ = std::fs::remove_dir_all(&db_path);
+    let path_exists = Path::exists(&db_path);
+    let db = DbInstance::new(&db_kind, db_path.to_str().unwrap(), "").unwrap();
+    if path_exists {
+        db.run_script(
+            "::compact",
+            Default::default(),
+            cozo::ScriptMutability::Mutable,
+        )
+        .unwrap();
+        return db;
+    }
 
-    static ref TEST_DB: DbInstance = {
-        let data_dir = PathBuf::from(env::var("COZO_BENCH_POKEC_DIR").unwrap());
-        let db_kind = env::var("COZO_TEST_DB_ENGINE").unwrap_or("mem".to_string());
-        let mut db_path = data_dir.clone();
-        let data_size = env::var("COZO_BENCH_POKEC_SIZE").unwrap_or("medium".to_string());
-        let batch_size = env::var("COZO_BENCH_POKEC_BATCH")
-            .unwrap()
-            .parse::<usize>()
-            .unwrap();
-        db_path.push(format!("{}-{}.db", db_kind, data_size));
-        // let _ = std::fs::remove_file(&db_path);
-        // let _ = std::fs::remove_dir_all(&db_path);
-        let path_exists = Path::exists(&db_path);
-        let db = DbInstance::new(&db_kind, db_path.to_str().unwrap(), "").unwrap();
-        if path_exists {
-            db.run_script("::compact", Default::default()).unwrap();
-            return db
-        }
+    let mut backup_path = data_dir.clone();
+    backup_path.push(format!("backup-{}.db", data_size));
+    if Path::exists(&backup_path) {
+        println!("restore from backup");
+        let import_time = Instant::now();
+        db.restore_backup(backup_path.to_str().unwrap()).unwrap();
+        dbg!(import_time.elapsed());
+        dbg!(((SIZES.0 + 2 * SIZES.1) as f64) / import_time.elapsed().as_secs_f64());
+    } else {
+        println!("parse data from text file");
+        let mut file_path = data_dir.clone();
+        file_path.push(format!("pokec_{}_import.cypher", data_size));
 
-        let mut backup_path = data_dir.clone();
-        backup_path.push(format!("backup-{}.db", data_size));
-        if Path::exists(&backup_path) {
-            println!("restore from backup");
-            let import_time = Instant::now();
-            db.restore_backup(backup_path.to_str().unwrap()).unwrap();
-            dbg!(import_time.elapsed());
-            dbg!(((SIZES.0 + 2 * SIZES.1) as f64) / import_time.elapsed().as_secs_f64());
-        } else {
-            println!("parse data from text file");
-            let mut file_path = data_dir.clone();
-            file_path.push(format!("pokec_{}_import.cypher", data_size));
+        // dbg!(&db_kind);
+        // dbg!(&data_dir);
+        // dbg!(&file_path);
+        // dbg!(&data_size);
+        // dbg!(&n_threads);
 
-            // dbg!(&db_kind);
-            // dbg!(&data_dir);
-            // dbg!(&file_path);
-            // dbg!(&data_size);
-            // dbg!(&n_threads);
-
-            if db.run_script(
+        if db
+            .run_script(
                 r#"
             {:create user {uid: Int => cmpl_pct: Int, gender: String?, age: Int?}}
             {:create friends {fr: Int, to: Int}}
             {:create friends.rev {to: Int, fr: Int}}
             "#,
                 Default::default(),
-            ).is_err() {
-                return db
-            }
+                cozo::ScriptMutability::Mutable,
+            )
+            .is_err()
+        {
+            return db;
+        }
 
             let node_re = Regex::new(r#"CREATE \(:User \{id: (\d+), completion_percentage: (\d+), gender: "(\w+)", age: (\d+)}\);"#).unwrap();
             let node_partial_re =
@@ -198,8 +205,7 @@ lazy_static! {
             dbg!((n_rows as f64) / import_time.elapsed().as_secs_f64());
         }
         db
-    };
-}
+    });
 
 type QueryFn = fn() -> ();
 
@@ -237,6 +243,7 @@ fn single_vertex_read() {
         .run_script(
             "?[cmpl_pct, gender, age] := *user{uid: $id, cmpl_pct, gender, age}",
             BTreeMap::from([("id".to_string(), DataValue::from(i as i64))]),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -248,6 +255,7 @@ fn single_vertex_write() {
             .run_script(
                 "?[uid, cmpl_pct, gender, age] <- [[$id, 0, null, null]] :put user {uid => cmpl_pct, gender, age}",
                 BTreeMap::from([("id".to_string(), DataValue::from(i as i64))]),
+                cozo::ScriptMutability::Mutable,
             )
             .is_ok() {
             return;
@@ -273,6 +281,7 @@ fn single_edge_write() {
                     ("i".to_string(), DataValue::from(i as i64)),
                     ("j".to_string(), DataValue::from(j as i64)),
                 ]),
+                cozo::ScriptMutability::Mutable,
             )
             .is_ok()
         {
@@ -289,6 +298,7 @@ fn pagerank() {
             ?[] <~ PageRank(*friends[])
             "#,
             Default::default(),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -303,6 +313,7 @@ fn single_vertex_update() {
             :put user {uid => cmpl_pct, age, gender}
             "#,
                 BTreeMap::from([("id".to_string(), DataValue::from(i as i64))]),
+                cozo::ScriptMutability::Mutable,
             )
             .is_ok()
         {
@@ -314,7 +325,11 @@ fn single_vertex_update() {
 
 fn aggregation_group() {
     TEST_DB
-        .run_script("?[age, count(uid)] := *user{uid, age}", Default::default())
+        .run_script(
+            "?[age, count(uid)] := *user{uid, age}",
+            Default::default(),
+            cozo::ScriptMutability::Immutable,
+        )
         .unwrap();
 }
 
@@ -323,6 +338,7 @@ fn aggregation_count() {
         .run_script(
             "?[count(uid), count(age)] := *user{uid, age}",
             Default::default(),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -332,6 +348,7 @@ fn aggregation_filter() {
         .run_script(
             "?[age, count(age)] := *user{age}, age ~ 0 >= 18",
             Default::default(),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -341,6 +358,7 @@ fn aggregation_min_max() {
         .run_script(
             "?[min(uid), max(uid), mean(uid)] := *user{uid, age}",
             Default::default(),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -352,6 +370,7 @@ fn expansion_1_plain() {
         .run_script(
             "?[to] := *friends{fr: $id, to}",
             BTreeMap::from([("id".to_string(), DataValue::from(i as i64))]),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -363,6 +382,7 @@ fn expansion_1_filter() {
         .run_script(
             "?[to] := *friends{fr: $id, to}, *user{uid: to, age}, age ~ 0 >= 18",
             BTreeMap::from([("id".to_string(), DataValue::from(i as i64))]),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -374,6 +394,7 @@ fn expansion_2_plain() {
         .run_script(
             "?[to] := *friends{fr: $id, to: a}, *friends{fr: a, to}",
             BTreeMap::from([("id".to_string(), DataValue::from(i as i64))]),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -385,6 +406,7 @@ fn expansion_2_filter() {
         .run_script(
             "?[to] := *friends{fr: $id, to: a}, *friends{fr: a, to}, *user{uid: to, age}, age ~ 0 >= 18",
             BTreeMap::from([("id".to_string(), DataValue::from(i as i64))]),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -400,6 +422,7 @@ fn expansion_3_plain() {
             ?[to] := l2[fr], *friends{fr, to}
             "#,
             BTreeMap::from([("id".to_string(), DataValue::from(i as i64))]),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -414,6 +437,7 @@ fn expansion_3_filter() {
                         ?[to] := l2[fr], *friends{fr, to}, *user{uid: to, age}, age ~ 0 >= 18
                         "#,
             BTreeMap::from([("id".to_string(), DataValue::from(i as i64))]),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -429,6 +453,7 @@ fn expansion_4_plain() {
                         ?[to] := l3[fr], *friends{fr, to}
                         "#,
             BTreeMap::from([("id".to_string(), DataValue::from(i as i64))]),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -444,6 +469,7 @@ fn expansion_4_filter() {
                         ?[to] := l3[fr], *friends{fr, to}
                         "#,
             BTreeMap::from([("id".to_string(), DataValue::from(i as i64))]),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -459,6 +485,7 @@ fn neighbours_2_plain() {
             ?[to] := l1[fr], *friends{fr, to}
             "#,
             BTreeMap::from([("id".to_string(), DataValue::from(i as i64))]),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -474,6 +501,7 @@ fn neighbours_2_filter_only() {
             ?[to] := l1[fr], *friends{fr, to}, *user{uid: to, age}, age ~ 0 >= 18
             "#,
             BTreeMap::from([("id".to_string(), DataValue::from(i as i64))]),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -489,6 +517,7 @@ fn neighbours_2_data_only() {
             ?[to, age, cmpl_pct, gender] := l1[fr], *friends{fr, to}, *user{uid: to, age, cmpl_pct, gender}
             "#,
             BTreeMap::from([("id".to_string(), DataValue::from(i as i64))]),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -504,6 +533,7 @@ fn neighbours_2_filter_data() {
             ?[to] := l1[fr], *friends{fr, to}, *user{uid: to, age, cmpl_pct, gender}, age ~ 0 >= 18
             "#,
             BTreeMap::from([("id".to_string(), DataValue::from(i as i64))]),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -517,6 +547,7 @@ fn pattern_cycle() {
             ?[n, m] := n = $id, *friends{fr: n, to: m}, *friends.rev{fr: m, to: n}
             "#,
             BTreeMap::from([("id".to_string(), DataValue::from(i as i64))]),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -535,6 +566,7 @@ fn pattern_long() {
                 :limit 1
             "#,
             BTreeMap::from([("id".to_string(), DataValue::from(i as i64))]),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
@@ -550,13 +582,14 @@ fn pattern_short() {
             :limit 1
             "#,
             BTreeMap::from([("id".to_string(), DataValue::from(i as i64))]),
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
 }
 
 #[bench]
 fn nothing(_: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
 }
 
 #[bench]
@@ -564,7 +597,7 @@ fn empty(_: &mut Bencher) {}
 
 #[bench]
 fn backup_db(_: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let data_size = env::var("COZO_BENCH_POKEC_SIZE").unwrap_or("medium".to_string());
     let backup_taken = Instant::now();
     TEST_DB
@@ -576,121 +609,121 @@ fn backup_db(_: &mut Bencher) {
 
 #[bench]
 fn bench_aggregation_group(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(aggregation_group)
 }
 
 #[bench]
 fn bench_aggregation_distinct(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(aggregation_count)
 }
 
 #[bench]
 fn bench_aggregation_filter(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(aggregation_filter)
 }
 
 #[bench]
 fn bench_aggregation_min_max(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(aggregation_min_max)
 }
 
 #[bench]
 fn bench_expansion_1(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(expansion_1_plain)
 }
 
 #[bench]
 fn bench_expansion_1_filter(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(expansion_1_filter)
 }
 
 #[bench]
 fn bench_expansion_2(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(expansion_2_plain)
 }
 
 #[bench]
 fn bench_expansion_2_filter(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(expansion_2_filter)
 }
 
 #[bench]
 fn bench_expansion_3(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(expansion_3_plain)
 }
 
 #[bench]
 fn bench_expansion_3_filter(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(expansion_3_filter)
 }
 
 #[bench]
 fn bench_expansion_4(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(expansion_4_plain)
 }
 
 #[bench]
 fn bench_expansion_4_filter(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(expansion_4_filter)
 }
 
 #[bench]
 fn bench_neighbours_2(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(neighbours_2_plain)
 }
 
 #[bench]
 fn bench_neighbours_2_filter(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(neighbours_2_filter_only)
 }
 
 #[bench]
 fn bench_neighbours_2_data(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(neighbours_2_data_only)
 }
 
 #[bench]
 fn bench_neighbours_2_filter_data(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(neighbours_2_filter_data)
 }
 
 #[bench]
 fn bench_pattern_cycle(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(pattern_cycle)
 }
 
 #[bench]
 fn bench_pattern_long(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(pattern_long)
 }
 
 #[bench]
 fn bench_pattern_short(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(pattern_short)
 }
 
 #[bench]
 fn bench_single_vertex(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(single_vertex_read)
 }
 
@@ -698,7 +731,7 @@ fn bench_single_vertex(b: &mut Bencher) {
 fn qps_single_vertex_read(_b: &mut Bencher) {
     use rayon::prelude::*;
 
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let count = 1_000_000;
     let qps_single_vertex_read_time = Instant::now();
     (0..count).into_par_iter().for_each(|_| {
@@ -711,7 +744,7 @@ fn qps_single_vertex_read(_b: &mut Bencher) {
 fn qps_single_vertex_write(_b: &mut Bencher) {
     use rayon::prelude::*;
 
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let count = 1_000_000;
     let qps_single_vertex_write_time = Instant::now();
     (0..count).into_par_iter().for_each(|_| {
@@ -722,25 +755,25 @@ fn qps_single_vertex_write(_b: &mut Bencher) {
 
 #[bench]
 fn bench_single_vertex_write(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(single_vertex_write)
 }
 
 #[bench]
 fn bench_single_edge_write(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(single_edge_write)
 }
 
 #[bench]
 fn bench_single_vertex_update(b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     b.iter(single_vertex_update)
 }
 
 #[bench]
 fn tp_expansion_1_plain(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let expansion_1_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         expansion_1_plain();
@@ -750,7 +783,7 @@ fn tp_expansion_1_plain(_b: &mut Bencher) {
 
 #[bench]
 fn tp_expansion_1_filter(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let expansion_1_filter_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         expansion_1_filter();
@@ -760,7 +793,7 @@ fn tp_expansion_1_filter(_b: &mut Bencher) {
 
 #[bench]
 fn tp_expansion_2_plain(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let expansion_2_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         expansion_2_plain();
@@ -770,7 +803,7 @@ fn tp_expansion_2_plain(_b: &mut Bencher) {
 
 #[bench]
 fn tp_expansion_2_filter(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let expansion_2_filter_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         expansion_2_filter();
@@ -780,7 +813,7 @@ fn tp_expansion_2_filter(_b: &mut Bencher) {
 
 #[bench]
 fn tp_expansion_3_plain(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let expansion_3_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         expansion_3_plain();
@@ -790,7 +823,7 @@ fn tp_expansion_3_plain(_b: &mut Bencher) {
 
 #[bench]
 fn tp_expansion_3_filter(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let expansion_3_filter_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         expansion_3_filter();
@@ -800,7 +833,7 @@ fn tp_expansion_3_filter(_b: &mut Bencher) {
 
 #[bench]
 fn tp_expansion_4_plain(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let expansion_4_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         expansion_4_plain();
@@ -810,7 +843,7 @@ fn tp_expansion_4_plain(_b: &mut Bencher) {
 
 #[bench]
 fn tp_expansion_4_filter(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let expansion_4_filter_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         expansion_4_filter();
@@ -820,7 +853,7 @@ fn tp_expansion_4_filter(_b: &mut Bencher) {
 
 #[bench]
 fn tp_neighbours_2_plain(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let neighbours_2_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         neighbours_2_plain();
@@ -830,7 +863,7 @@ fn tp_neighbours_2_plain(_b: &mut Bencher) {
 
 #[bench]
 fn tp_neighbours_2_filter_only(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let neighbours_2_filter_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         neighbours_2_filter_only();
@@ -840,7 +873,7 @@ fn tp_neighbours_2_filter_only(_b: &mut Bencher) {
 
 #[bench]
 fn tp_neighbours_2_data_only(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let neighbours_2_data_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         neighbours_2_data_only();
@@ -850,7 +883,7 @@ fn tp_neighbours_2_data_only(_b: &mut Bencher) {
 
 #[bench]
 fn tp_neighbours_2_filter_data(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let neighbours_2_filter_data_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         neighbours_2_filter_data();
@@ -860,7 +893,7 @@ fn tp_neighbours_2_filter_data(_b: &mut Bencher) {
 
 #[bench]
 fn tp_pattern_cycle(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let pattern_cycle_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         pattern_cycle();
@@ -870,7 +903,7 @@ fn tp_pattern_cycle(_b: &mut Bencher) {
 
 #[bench]
 fn tp_pattern_long(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let pattern_long_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         pattern_long();
@@ -880,7 +913,7 @@ fn tp_pattern_long(_b: &mut Bencher) {
 
 #[bench]
 fn tp_pattern_short(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let pattern_short_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         pattern_short();
@@ -890,7 +923,7 @@ fn tp_pattern_short(_b: &mut Bencher) {
 
 #[bench]
 fn tp_aggregation_group(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let aggregation_group_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         aggregation_group();
@@ -900,7 +933,7 @@ fn tp_aggregation_group(_b: &mut Bencher) {
 
 #[bench]
 fn tp_aggregation_count(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let aggregation_count_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         aggregation_count();
@@ -910,7 +943,7 @@ fn tp_aggregation_count(_b: &mut Bencher) {
 
 #[bench]
 fn tp_aggregation_filter(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let aggregation_filter_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         aggregation_filter();
@@ -920,7 +953,7 @@ fn tp_aggregation_filter(_b: &mut Bencher) {
 
 #[bench]
 fn tp_aggregation_min_max(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let aggregation_min_max_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         aggregation_min_max();
@@ -930,7 +963,7 @@ fn tp_aggregation_min_max(_b: &mut Bencher) {
 
 #[bench]
 fn tp_single_vertex_read(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let single_vertex_read_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         single_vertex_read();
@@ -940,7 +973,7 @@ fn tp_single_vertex_read(_b: &mut Bencher) {
 
 #[bench]
 fn tp_single_vertex_write(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let single_vertex_write_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         single_vertex_write();
@@ -950,7 +983,7 @@ fn tp_single_vertex_write(_b: &mut Bencher) {
 
 #[bench]
 fn tp_single_edge_write(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let single_edge_write_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         single_vertex_write();
@@ -960,7 +993,7 @@ fn tp_single_edge_write(_b: &mut Bencher) {
 
 #[bench]
 fn tp_single_vertex_update(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let single_vertex_update_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         single_vertex_update();
@@ -970,7 +1003,7 @@ fn tp_single_vertex_update(_b: &mut Bencher) {
 
 #[bench]
 fn tp_pagerank(_b: &mut Bencher) {
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     let pagerank_time = Instant::now();
     (0..*ITERATIONS).into_par_iter().for_each(|_| {
         pagerank();
@@ -998,7 +1031,7 @@ fn realistic(_: &mut Bencher) {
     println!("realistic benchmarks");
     dbg!(rayon::current_num_threads());
     let init_time = Instant::now();
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     dbg!(init_time.elapsed());
 
     let percentages = [
@@ -1036,7 +1069,7 @@ fn mixed(_: &mut Bencher) {
     println!("mixed benchmarks");
     dbg!(rayon::current_num_threads());
     let init_time = Instant::now();
-    initialize(&TEST_DB);
+    LazyLock::force(&TEST_DB);
     dbg!(init_time.elapsed());
 
     let mixed_pct = env::var("COZO_BENCH_POKEC_MIX_PCT").unwrap_or("0.3".to_string());

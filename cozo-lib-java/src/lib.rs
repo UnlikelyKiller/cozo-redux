@@ -7,12 +7,11 @@
  */
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 use jni::objects::{JClass, JString};
 use jni::sys::{jboolean, jint, jstring};
 use jni::JNIEnv;
-use lazy_static::lazy_static;
 
 use cozo::*;
 
@@ -22,12 +21,10 @@ struct Handles {
     dbs: Mutex<BTreeMap<i32, DbInstance>>,
 }
 
-lazy_static! {
-    static ref HANDLES: Handles = Handles {
-        current: Default::default(),
-        dbs: Mutex::new(Default::default())
-    };
-}
+static HANDLES: LazyLock<Handles> = LazyLock::new(|| Handles {
+    current: Default::default(),
+    dbs: Mutex::new(Default::default()),
+});
 
 fn get_db(id: i32) -> Option<DbInstance> {
     let dbs = HANDLES.dbs.lock().unwrap();
