@@ -19,3 +19,6 @@ debug = true
 
 [profile.dev.package."cozorocks"]
 opt-level = 3
+
+[patch.crates-io]
+swapvec = { path = "vendor/swapvec" }

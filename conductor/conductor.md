@@ -10,6 +10,7 @@ Master registry for development tracks and architectural upgrades.
 | **002** | `[ ]` | Unmaintained Hygiene (`adler`, `fxhash`) | Antigravity |
 | **003** | `[ ]` | Platform Modernization (`instant` -> `web-time`) | Antigravity |
 | **004** | `[ ]` | Serialization Overhaul (`bincode` -> `postcard`) | Antigravity |
+| **005** | `[/]` | Security Infrastructure (Semgrep, Gitleaks, Pre-commit) | Antigravity |
 
 ## Completed Tracks
 

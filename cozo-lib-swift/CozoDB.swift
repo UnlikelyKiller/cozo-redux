@@ -31,7 +31,7 @@ public class RowHeaders {
 public struct NamedRow {
     public let headers: RowHeaders
     public let fields: [JSON]
-    
+
     public func get(idx: Int) -> JSON {
         return self.fields[idx]
     }
@@ -79,7 +79,7 @@ extension NamedRow {
 
 public class CozoDB {
     public let db: DbInstance
-    
+
     public init() {
         let db = new_cozo_db("mem", "", "")!
         self.db = db

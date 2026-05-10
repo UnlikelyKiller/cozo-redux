@@ -61,14 +61,14 @@ public class CozoDB {
     * `path`: 存储文件的路径，仅在 `sqlite` 引擎下有效。
     */
     public init(kind: String, path: String) throws;
-    
+
     /**
      * 执行查询文本
      *
      * `query`:   查询文本
      */
     public func run(_ query: String) throws -> [NamedRow];
-        
+
     /**
      * 执行查询文本
      *
@@ -76,37 +76,37 @@ public class CozoDB {
      * `params`:  文本中可用的参数
      */
     public func run(_ query: String, params: JSON) throws -> [NamedRow];
-    
+
     /**
      * 导出纯出表至 JSON
      *
      * `relations`: 需导出的表名
      */
     public func exportRelations(relations: [String]) throws -> JSON;
-    
+
     /**
      * 导入数据至存储表中
-     * 
+     *
      * 注意此方法不会激活任何触发器。
-     * 
-     * `data`: 导入内容，与 `exportRelations` 返回的格式相同 
+     *
+     * `data`: 导入内容，与 `exportRelations` 返回的格式相同
      */
     public func importRelations(data: JSON) throws;
-   
+
     /**
      * 备份数据库
      *
      * `path`: 备份路径
      */
     public func backup(path: String) throws;
-    
+
     /**
      * 将备份恢复到当前数据库
      *
      * `path`: 备份路径
      */
     public func restore(path: String) throws;
-    
+
     /**
      * 将备份中表里的数据插入当前数据库中选定的同名表中
      *

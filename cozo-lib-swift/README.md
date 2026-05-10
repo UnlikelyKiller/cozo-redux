@@ -30,15 +30,15 @@ Download it from the [release page](https://github.com/cozodb/cozo/releases) (lo
 Uncompress.
 
 In XCode of your project, select from the menu `File > Add Packages`,
-select `Add Local ...` on the bottom, choose the folder you just decompressed 
+select `Add Local ...` on the bottom, choose the folder you just decompressed
 (the one containing a `Package.swift` at the root), then click `Add Package`.
 
-Then click your project on the left pane, and go to 
+Then click your project on the left pane, and go to
 `General > Frameworks, Libraries, and Embedded Content`,
-click on the plus sign, and add `Workspace > CozoSwiftBridge > CozoSwiftBridge` 
+click on the plus sign, and add `Workspace > CozoSwiftBridge > CozoSwiftBridge`
 (with a library icon).
 
-If you did everything right, you should also see `CozoSwiftBridge` under 
+If you did everything right, you should also see `CozoSwiftBridge` under
 `Build Phases > Link Binary With Libraries`.
 
 > You cannot download swift packages directly from GitHub repo, since
@@ -81,14 +81,14 @@ public class CozoDB {
     * `path`: specifies the path to the storage file, only used for `sqlite` engine
     */
     public init(kind: String, path: String) throws;
-    
+
     /**
      * Run query against the database.
      *
      * `query`:   the CozoScript to execute.
      */
     public func run(_ query: String) throws -> [NamedRow];
-        
+
     /**
      * Run query against the database.
      *
@@ -96,38 +96,38 @@ public class CozoDB {
      * `params`:  the params of the query in JSON format.
      */
     public func run(_ query: String, params: JSON) throws -> [NamedRow];
-    
+
     /**
      * Export relations as JSON
      *
      * `relations`: the stored relations to export
      */
     public func exportRelations(relations: [String]) throws -> JSON;
-    
+
     /**
      * Import data into relations
-     * 
+     *
      * Note that triggers are _not_ run for the relations, if any exists.
      * If you need to activate triggers, use queries with parameters.
-     * 
-     * `data`: the payload, in the same format as returned by `exportRelations`. 
+     *
+     * `data`: the payload, in the same format as returned by `exportRelations`.
      */
     public func importRelations(data: JSON) throws;
-   
+
     /**
      * Backup the database.
      *
      * `path`: path of the output file.
      */
     public func backup(path: String) throws;
-    
+
     /**
      * Restore the database from a backup.
      *
      * `path`: path of the input file.
      */
     public func restore(path: String) throws;
-    
+
     /**
      * Import data into a relation from a backup.
      *
@@ -145,8 +145,8 @@ More information are [here](https://docs.cozodb.org/en/latest/nonscript.html).
 
 ## Building the Swift Package
 
-First, install the [Rust toolchain](https://rustup.rs). 
-Then run the [build script](build-rust.sh) in this directory. 
+First, install the [Rust toolchain](https://rustup.rs).
+Then run the [build script](build-rust.sh) in this directory.
 It is recommended to also set the environment variable `CARGO_PROFILE_RELEASE_LTO=fat`:
 this makes the building process much longer, but in turn the library runs a little bit faster.
 

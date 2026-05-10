@@ -46,7 +46,7 @@ printQuery("?[a] <- [[1, 2]]")
 class CozoDb {
     /**
      * 构造函数
-     * 
+     *
      * @param engine:  默认为 'mem'，即纯内存的非持久化存储。其他值可以是 'sqlite'、'rocksdb' 等
      * @param path:    存储文件或文件夹的路径，默认为 'data.db'。在 'mem' 引擎下无用。
      * @param options: 默认为 {}，在 NodeJS 支持的引擎中无用。
@@ -60,7 +60,7 @@ class CozoDb {
 
     /**
      * 执行查询文本
-     * 
+     *
      * @param script: 查询文本
      * @param params: 传入的参数，默认为 {}
      */
@@ -68,30 +68,30 @@ class CozoDb {
 
     /**
      * 导出存储表
-     * 
+     *
      * @param relations:  需要导出的存储表名称
      */
     async exportRelations(relations: Array<string>): object;
 
     /**
      * 导入数据至存储表
-     * 
+     *
      * 注意：以此方法导入数据不会激活存储表上任何的触发器。
-     * 
+     *
      * @param data: 导入的表以及数据，格式与 `exportRelations` 返回的相同
      */
     async importRelations(data: object): object;
 
     /**
      * 备份数据库
-     * 
+     *
      * @param path: 备份文件路径
      */
     async backup(path: string): object;
 
     /**
      * 从备份文件恢复数据至当前数据库。若当前数据库非空，则报错。
-     * 
+     *
      * @param path: 备份文件路径
      */
     async restore(path: string): object;

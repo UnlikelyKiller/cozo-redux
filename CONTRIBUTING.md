@@ -1,6 +1,6 @@
 ## Contributing
 
-Thanks for your interest in contributing to the Cozo project! 
+Thanks for your interest in contributing to the Cozo project!
 As Cozo is just getting started, we aim to keep everything simple.
 
 Contributions to code or other materials

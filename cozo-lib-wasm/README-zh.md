@@ -26,7 +26,7 @@ import init, {CozoDb} from "cozo-lib-wasm";
 let db;
 init().then(() => {
     db = CozoDb.new();
-    // db can only be used after the promise resolves 
+    // db can only be used after the promise resolves
 })
 ```
 

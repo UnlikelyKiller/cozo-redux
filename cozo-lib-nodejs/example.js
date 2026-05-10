@@ -32,7 +32,7 @@ const {CozoDb} = require('.');
     try {
         let r = await db.run(`
         rel[] <- [[1],[2]]
-        
+
         ?[a] <~ Pipipy(rel[], mul: 3)
         `);
         console.log(r);

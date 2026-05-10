@@ -1,0 +1,5 @@
+# Gitleaks ignore file
+# Add fingerprints or file paths to ignore
+.env
+target/
+.changeguard/

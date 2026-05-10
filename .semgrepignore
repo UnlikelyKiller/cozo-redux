@@ -1,0 +1,5 @@
+# Semgrep ignore file
+target/
+.changeguard/
+vendor/
+cozorocks/rocksdb/

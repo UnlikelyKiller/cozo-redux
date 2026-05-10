@@ -40,7 +40,7 @@ printQuery("?[a, b] <- [[1, 2]]")
 class CozoDb {
     /**
      * Constructor
-     * 
+     *
      * @param engine:  defaults to 'mem', the in-memory non-persistent engine.
      *                 'sqlite', 'rocksdb' and maybe others are available,
      *                 depending on compile time flags.
@@ -59,7 +59,7 @@ class CozoDb {
 
     /**
      * Runs a query
-     * 
+     *
      * @param script: the query
      * @param params: the parameters as key-value pairs, defaults to {}
      */
@@ -67,17 +67,17 @@ class CozoDb {
 
     /**
      * Export several relations
-     * 
+     *
      * @param relations:  names of relations to export, in an array.
      */
     async exportRelations(relations: Array<string>): object;
 
     /**
      * Import several relations.
-     * 
+     *
      * Note that triggers are _not_ run for the relations, if any exists.
      * If you need to activate triggers, use queries with parameters.
-     * 
+     *
      * @param data: in the same form as returned by `exportRelations`. The relations
      *              must already exist in the database.
      */
@@ -85,24 +85,24 @@ class CozoDb {
 
     /**
      * Backup database
-     * 
+     *
      * @param path: path to file to store the backup.
      */
     async backup(path: string): object;
 
     /**
      * Restore from a backup. Will fail if the current database already contains data.
-     * 
+     *
      * @param path: path to the backup file.
      */
     async restore(path: string): object;
 
     /**
      * Import several relations from a backup. The relations must already exist in the database.
-     * 
+     *
      * Note that triggers are _not_ run for the relations, if any exists.
      * If you need to activate triggers, use queries with parameters.
-     * 
+     *
      * @param path: path to the backup file.
      * @param rels: the relations to import.
      */

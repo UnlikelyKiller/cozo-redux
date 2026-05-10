@@ -1,7 +1,7 @@
 # Cozo in web assembly
 
 This crate provides Cozo web assembly modules for browsers.
-If you are targeting NodeJS, use [this](../cozo-lib-nodejs) instead: 
+If you are targeting NodeJS, use [this](../cozo-lib-nodejs) instead:
 native code is still _much_ faster than WASM.
 
 This document describes how to set up the Cozo WASM module for use.
@@ -15,7 +15,7 @@ npm install cozo-lib-wasm
 
 Alternatively, you can download `cozo_wasm-<VERSION>-wasm32-unknown-unknown.zip`
 from the [release page](https://github.com/cozodb/cozo/releases) and include
-the JS and WASM files directly in your project: see the `index.html` example 
+the JS and WASM files directly in your project: see the `index.html` example
 [here](https://rustwasm.github.io/docs/wasm-bindgen/examples/without-a-bundler.html) for
 what is required in your code.
 
@@ -33,7 +33,7 @@ and call
 let db;
 init().then(() => {
     db = CozoDb.new();
-    // db can only be used after the promise resolves 
+    // db can only be used after the promise resolves
 })
 ```
 
@@ -55,7 +55,7 @@ export class CozoDb {
 }
 ```
 
-Note that this API is synchronous. If your computation runs for a long time, 
+Note that this API is synchronous. If your computation runs for a long time,
 **it will block the main thread**. If you know that some of your queries are going to be heavy,
 you should consider running Cozo in a web worker. However, the published module
 may not work across browsers in web workers (look for the row "Support for ECMAScript

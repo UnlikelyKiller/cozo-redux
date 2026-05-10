@@ -22,13 +22,13 @@ cargo build --release -p cozo_java -F storage-rocksdb
 Building for Android is not easy, and we will be very sketchy.
 
 The first thing to note is that you should omit `-F storage-rocksdb` from the build command above,
-unless you are prepared to manually change lots of `build.rs` flags in 
+unless you are prepared to manually change lots of `build.rs` flags in
 [cozorocks](../cozorocks) to build the RocksDB dependency.
 
-Then, in addition to adding Android targets to the Rust toolchain, 
+Then, in addition to adding Android targets to the Rust toolchain,
 you also need to set up the Android NDK
 cross-compilation and libraries paths, etc.
-This is notoriously hard to get right, but fortunately 
+This is notoriously hard to get right, but fortunately
 you can just use the Docker image [here](https://github.com/cross-rs/cross)
 which has everything set up for you.
 
