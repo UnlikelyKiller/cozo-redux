@@ -1621,3 +1621,103 @@ fn fts_drop() {
     )
     .unwrap();
 }
+
+#[cfg(feature = "rayon")]
+#[test]
+fn test_parallel_filter_correctness() {
+    // Exercises FilteredRA parallel path (>= FILTER_PAR_THRESHOLD = 1024 tuples).
+    // Load 2000 rows; query with a filter; verify count and all values satisfy the predicate.
+    let db = DbInstance::default();
+    db.run_default(":create par_nums {n: Int}").unwrap();
+    db.import_relations(BTreeMap::from([(
+        "par_nums".to_string(),
+        crate::NamedRows {
+            headers: vec!["n".to_string()],
+            rows: (0i64..2000)
+                .map(|i| vec![DataValue::from(i)].into())
+                .collect(),
+            next: None,
+        },
+    )]))
+    .unwrap();
+
+    let result = db.run_default("?[n] := *par_nums{n}, n % 2 == 0").unwrap();
+    assert_eq!(result.rows.len(), 1000);
+    for row in &result.rows {
+        assert_eq!(row[0], DataValue::from(row[0].get_int().unwrap() / 2 * 2));
+    }
+}
+
+#[cfg(feature = "rayon")]
+#[test]
+fn test_parallel_unification_correctness() {
+    // Exercises UnificationRA parallel path (>= UNIF_PAR_THRESHOLD = 1024 tuples).
+    // Load 2000 rows; bind doubled = n * 2; verify all pairs are consistent.
+    let db = DbInstance::default();
+    db.run_default(":create par_vals {n: Int}").unwrap();
+    db.import_relations(BTreeMap::from([(
+        "par_vals".to_string(),
+        crate::NamedRows {
+            headers: vec!["n".to_string()],
+            rows: (0i64..2000)
+                .map(|i| vec![DataValue::from(i)].into())
+                .collect(),
+            next: None,
+        },
+    )]))
+    .unwrap();
+
+    let result = db
+        .run_default("?[n, doubled] := *par_vals{n}, doubled = n * 2")
+        .unwrap();
+    assert_eq!(result.rows.len(), 2000);
+    for row in &result.rows {
+        let n = row[0].get_int().unwrap();
+        let doubled = row[1].get_int().unwrap();
+        assert_eq!(doubled, n * 2);
+    }
+}
+
+#[cfg(feature = "rayon")]
+#[test]
+fn test_parallel_join_correctness() {
+    // Exercises materialized_join parallel path (>= PAR_THRESHOLD = 512 on right side).
+    // 600-row right relation triggers the parallel probe; verify all 50 join matches are correct.
+    let db = DbInstance::default();
+    db.run_default(":create par_left {k: Int}").unwrap();
+    db.run_default(":create par_right {k: Int, v: Int}")
+        .unwrap();
+    db.import_relations(BTreeMap::from([
+        (
+            "par_left".to_string(),
+            crate::NamedRows {
+                headers: vec!["k".to_string()],
+                rows: (0i64..50)
+                    .map(|i| vec![DataValue::from(i)].into())
+                    .collect(),
+                next: None,
+            },
+        ),
+        (
+            "par_right".to_string(),
+            crate::NamedRows {
+                headers: vec!["k".to_string(), "v".to_string()],
+                rows: (0i64..600)
+                    .map(|i| vec![DataValue::from(i), DataValue::from(i * 3)].into())
+                    .collect(),
+                next: None,
+            },
+        ),
+    ]))
+    .unwrap();
+
+    let result = db
+        .run_default("?[k, v] := *par_left{k}, *par_right{k, v}")
+        .unwrap();
+    assert_eq!(result.rows.len(), 50);
+    for row in &result.rows {
+        let k = row[0].get_int().unwrap();
+        let v = row[1].get_int().unwrap();
+        assert_eq!(v, k * 3);
+    }
+}
