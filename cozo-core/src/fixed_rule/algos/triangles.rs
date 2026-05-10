@@ -63,37 +63,40 @@ fn clustering_coefficients(
 ) -> Result<Vec<(f64, usize, usize)>> {
     let node_size = graph.node_count();
 
-    (0..node_size)
-        .into_par_iter()
-        .map(|node_idx| -> Result<(f64, usize, usize)> {
-            let edges = graph.out_neighbors(node_idx).collect_vec();
-            let degree = edges.len();
-            if degree < 2 {
-                Ok((0., 0, degree))
-            } else {
-                let n_triangles = edges
-                    .iter()
-                    .map(|e_src| {
-                        edges
-                            .iter()
-                            .filter(|e_dst| {
-                                if e_src <= e_dst {
-                                    return false;
+    #[cfg(feature = "rayon")]
+    let it = (0..node_size).into_par_iter();
+    #[cfg(not(feature = "rayon"))]
+    let it = (0..node_size);
+
+    it.map(|node_idx| -> Result<(f64, usize, usize)> {
+        let edges = graph.out_neighbors(node_idx).collect_vec();
+        let degree = edges.len();
+        if degree < 2 {
+            Ok((0., 0, degree))
+        } else {
+            let n_triangles = edges
+                .iter()
+                .map(|e_src| {
+                    edges
+                        .iter()
+                        .filter(|e_dst| {
+                            if e_src <= e_dst {
+                                return false;
+                            }
+                            for nb in graph.out_neighbors(**e_src) {
+                                if nb == **e_dst {
+                                    return true;
                                 }
-                                for nb in graph.out_neighbors(**e_src) {
-                                    if nb == **e_dst {
-                                        return true;
-                                    }
-                                }
-                                false
-                            })
-                            .count()
-                    })
-                    .sum();
-                let cc = 2. * n_triangles as f64 / ((degree as f64) * ((degree as f64) - 1.));
-                poison.check()?;
-                Ok((cc, n_triangles, degree))
-            }
-        })
-        .collect::<Result<_>>()
+                            }
+                            false
+                        })
+                        .count()
+                })
+                .sum();
+            let cc = 2. * n_triangles as f64 / ((degree as f64) * ((degree as f64) - 1.));
+            poison.check()?;
+            Ok((cc, n_triangles, degree))
+        }
+    })
+    .collect()
 }

@@ -14,6 +14,7 @@ use itertools::Itertools;
 use miette::Result;
 use ordered_float::OrderedFloat;
 use priority_queue::PriorityQueue;
+#[cfg(feature = "rayon")]
 use rayon::prelude::*;
 use smartstring::{LazyCompact, SmartString};
 
@@ -45,7 +46,10 @@ impl FixedRule for BetweennessCentrality {
             return Ok(());
         }
 
+        #[cfg(feature = "rayon")]
         let it = (0..n).into_par_iter();
+        #[cfg(not(feature = "rayon"))]
+        let it = (0..n);
 
         let centrality_segs: Vec<_> = it
             .map(|start| -> Result<BTreeMap<u32, f32>> {
@@ -112,7 +116,10 @@ impl FixedRule for ClosenessCentrality {
         if n == 0 {
             return Ok(());
         }
+        #[cfg(feature = "rayon")]
         let it = (0..n).into_par_iter();
+        #[cfg(not(feature = "rayon"))]
+        let it = (0..n);
 
         let res: Vec<_> = it
             .map(|start| -> Result<f32> {
