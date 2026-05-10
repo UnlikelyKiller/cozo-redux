@@ -9,7 +9,7 @@ Track 008 **COMPLETE**. All three phases done and pushed.
 ## ChangeGuard State
 
 - Ledger: `0 pending, 0 unaudited drift`
-- Last committed git commit: TBD — perf(track008): Phase 3 — eliminate to_vec() in sled.rs range bounds
+- Last committed git commit: `aca1eb32` — perf(track008): Phase 3 — eliminate to_vec() in sled.rs range bounds
 
 ## Pre-commit Hook (actual)
 
