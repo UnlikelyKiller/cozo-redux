@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 use crate::fts::tokenizer::{Token, TokenStream};
 
 /// Struct representing pre-tokenized text
+#[allow(dead_code)]
 #[derive(Debug, Clone, serde_derive::Serialize, serde_derive::Deserialize, Eq, PartialEq)]
 pub(crate) struct PreTokenizedString {
     /// Original text
@@ -24,6 +25,7 @@ impl PartialOrd for PreTokenizedString {
 }
 
 /// [`TokenStream`] implementation which wraps [`PreTokenizedString`]
+#[allow(dead_code)]
 pub(crate) struct PreTokenizedStream {
     tokenized_string: PreTokenizedString,
     current_token: i64,

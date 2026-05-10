@@ -13,14 +13,14 @@ use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
-use web_time::Instant;
 use std::{env, io, mem};
 use test::Bencher;
+use web_time::Instant;
 
-use std::sync::LazyLock;
 use rand::Rng;
 use rayon::prelude::*;
 use regex::Regex;
+use std::sync::LazyLock;
 
 use cozo::{DataValue, DbInstance, NamedRows};
 
@@ -95,117 +95,122 @@ static TEST_DB: LazyLock<DbInstance> = LazyLock::new(|| {
             return db;
         }
 
-            let node_re = Regex::new(r#"CREATE \(:User \{id: (\d+), completion_percentage: (\d+), gender: "(\w+)", age: (\d+)}\);"#).unwrap();
-            let node_partial_re =
-                Regex::new(r#"CREATE \(:User \{id: (\d+), completion_percentage: (\d+)}\);"#).unwrap();
-            let edge_re = Regex::new(r#"MATCH \(n:User \{id: (\d+)}\), \(m:User \{id: (\d+)}\) CREATE \(n\)-\[e: Friend]->\(m\);"#).unwrap();
+        let node_re = Regex::new(r#"CREATE \(:User \{id: (\d+), completion_percentage: (\d+), gender: "(\w+)", age: (\d+)}\);"#).unwrap();
+        let node_partial_re =
+            Regex::new(r#"CREATE \(:User \{id: (\d+), completion_percentage: (\d+)}\);"#).unwrap();
+        let edge_re = Regex::new(r#"MATCH \(n:User \{id: (\d+)}\), \(m:User \{id: (\d+)}\) CREATE \(n\)-\[e: Friend]->\(m\);"#).unwrap();
 
-            let file = File::open(&file_path).unwrap();
-            let mut friends = Vec::with_capacity(batch_size);
-            let mut users = Vec::with_capacity(batch_size);
-            let mut push_to_users = |row: Option<Vec<DataValue>>, force: bool| {
-                if let Some(row) = row {
-                    users.push(row);
-                }
-                if users.len() >= batch_size || (force && !users.is_empty()) {
-                    let mut new_rows = Vec::with_capacity(batch_size);
-                    mem::swap(&mut new_rows, &mut users);
-                    db.import_relations(BTreeMap::from([(
-                        "user".to_string(),
-                        NamedRows {
-                            headers: vec![
-                                "uid".to_string(),
-                                "cmpl_pct".to_string(),
-                                "gender".to_string(),
-                                "age".to_string(),
-                            ],
-                            rows: new_rows,
-                            next: None
-                        },
-                    )]))
-                    .unwrap();
-                }
-            };
-
-            let mut push_to_friends = |row: Option<Vec<DataValue>>, force: bool| {
-                if let Some(row) = row {
-                    friends.push(row);
-                }
-                if friends.len() >= batch_size || (force && !friends.is_empty()) {
-                    let mut new_rows = Vec::with_capacity(batch_size);
-                    mem::swap(&mut new_rows, &mut friends);
-                    db.import_relations(BTreeMap::from([
-                        (
-                            "friends".to_string(),
-                            NamedRows {
-                                headers: vec!["fr".to_string(), "to".to_string()],
-                                rows: new_rows.clone(),
-                                next: None,
-                            },
-                        ),
-                        (
-                            "friends.rev".to_string(),
-                            NamedRows {
-                                headers: vec!["fr".to_string(), "to".to_string()],
-                                rows: new_rows,
-                                next: None,
-                            },
-                        ),
-                    ]))
-                    .unwrap();
-                }
-            };
-
-            let import_time = Instant::now();
-            let mut n_rows = 0usize;
-            for line in io::BufReader::new(file).lines() {
-                let line = line.unwrap();
-                if let Some(data) = edge_re.captures(&line) {
-                    n_rows += 2;
-                    let fr = data.get(1).unwrap().as_str().parse::<i64>().unwrap();
-                    let to = data.get(2).unwrap().as_str().parse::<i64>().unwrap();
-                    push_to_friends(Some(vec![DataValue::from(fr), DataValue::from(to)]), false);
-                    continue;
-                }
-                if let Some(data) = node_re.captures(&line) {
-                    n_rows += 1;
-                    let uid = data.get(1).unwrap().as_str().parse::<i64>().unwrap();
-                    let cmpl_pct = data.get(2).unwrap().as_str().parse::<i64>().unwrap();
-                    let gender = data.get(3).unwrap().as_str();
-                    let age = data.get(4).unwrap().as_str().parse::<i64>().unwrap();
-                    push_to_users(
-                        Some(vec![DataValue::from(uid), DataValue::from(cmpl_pct), DataValue::from(gender), DataValue::from(age)]),
-                        false,
-                    );
-                    continue;
-                }
-                if let Some(data) = node_partial_re.captures(&line) {
-                    n_rows += 1;
-                    let uid = data.get(1).unwrap().as_str().parse::<i64>().unwrap();
-                    let cmpl_pct = data.get(2).unwrap().as_str().parse::<i64>().unwrap();
-                    push_to_users(
-                        Some(vec![
-                            DataValue::from(uid),
-                            DataValue::from(cmpl_pct),
-                            DataValue::Null,
-                            DataValue::Null,
-                        ]),
-                        false,
-                    );
-                    continue;
-                }
-                if line.len() < 3 {
-                    continue;
-                }
-                panic!("Err: {}", line)
+        let file = File::open(&file_path).unwrap();
+        let mut friends = Vec::with_capacity(batch_size);
+        let mut users = Vec::with_capacity(batch_size);
+        let mut push_to_users = |row: Option<Vec<DataValue>>, force: bool| {
+            if let Some(row) = row {
+                users.push(row);
             }
-            push_to_users(None, true);
-            push_to_friends(None, true);
-            dbg!(import_time.elapsed());
-            dbg!((n_rows as f64) / import_time.elapsed().as_secs_f64());
+            if users.len() >= batch_size || (force && !users.is_empty()) {
+                let mut new_rows = Vec::with_capacity(batch_size);
+                mem::swap(&mut new_rows, &mut users);
+                db.import_relations(BTreeMap::from([(
+                    "user".to_string(),
+                    NamedRows {
+                        headers: vec![
+                            "uid".to_string(),
+                            "cmpl_pct".to_string(),
+                            "gender".to_string(),
+                            "age".to_string(),
+                        ],
+                        rows: new_rows,
+                        next: None,
+                    },
+                )]))
+                .unwrap();
+            }
+        };
+
+        let mut push_to_friends = |row: Option<Vec<DataValue>>, force: bool| {
+            if let Some(row) = row {
+                friends.push(row);
+            }
+            if friends.len() >= batch_size || (force && !friends.is_empty()) {
+                let mut new_rows = Vec::with_capacity(batch_size);
+                mem::swap(&mut new_rows, &mut friends);
+                db.import_relations(BTreeMap::from([
+                    (
+                        "friends".to_string(),
+                        NamedRows {
+                            headers: vec!["fr".to_string(), "to".to_string()],
+                            rows: new_rows.clone(),
+                            next: None,
+                        },
+                    ),
+                    (
+                        "friends.rev".to_string(),
+                        NamedRows {
+                            headers: vec!["fr".to_string(), "to".to_string()],
+                            rows: new_rows,
+                            next: None,
+                        },
+                    ),
+                ]))
+                .unwrap();
+            }
+        };
+
+        let import_time = Instant::now();
+        let mut n_rows = 0usize;
+        for line in io::BufReader::new(file).lines() {
+            let line = line.unwrap();
+            if let Some(data) = edge_re.captures(&line) {
+                n_rows += 2;
+                let fr = data.get(1).unwrap().as_str().parse::<i64>().unwrap();
+                let to = data.get(2).unwrap().as_str().parse::<i64>().unwrap();
+                push_to_friends(Some(vec![DataValue::from(fr), DataValue::from(to)]), false);
+                continue;
+            }
+            if let Some(data) = node_re.captures(&line) {
+                n_rows += 1;
+                let uid = data.get(1).unwrap().as_str().parse::<i64>().unwrap();
+                let cmpl_pct = data.get(2).unwrap().as_str().parse::<i64>().unwrap();
+                let gender = data.get(3).unwrap().as_str();
+                let age = data.get(4).unwrap().as_str().parse::<i64>().unwrap();
+                push_to_users(
+                    Some(vec![
+                        DataValue::from(uid),
+                        DataValue::from(cmpl_pct),
+                        DataValue::from(gender),
+                        DataValue::from(age),
+                    ]),
+                    false,
+                );
+                continue;
+            }
+            if let Some(data) = node_partial_re.captures(&line) {
+                n_rows += 1;
+                let uid = data.get(1).unwrap().as_str().parse::<i64>().unwrap();
+                let cmpl_pct = data.get(2).unwrap().as_str().parse::<i64>().unwrap();
+                push_to_users(
+                    Some(vec![
+                        DataValue::from(uid),
+                        DataValue::from(cmpl_pct),
+                        DataValue::Null,
+                        DataValue::Null,
+                    ]),
+                    false,
+                );
+                continue;
+            }
+            if line.len() < 3 {
+                continue;
+            }
+            panic!("Err: {}", line)
         }
-        db
-    });
+        push_to_users(None, true);
+        push_to_friends(None, true);
+        dbg!(import_time.elapsed());
+        dbg!((n_rows as f64) / import_time.elapsed().as_secs_f64());
+    }
+    db
+});
 
 type QueryFn = fn() -> ();
 

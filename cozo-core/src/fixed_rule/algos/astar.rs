@@ -53,7 +53,7 @@ impl FixedRule for ShortestPathAStar {
                     start[0].clone(),
                     goal[0].clone(),
                     DataValue::from(cost),
-                    DataValue::List(path),
+                    DataValue::list(path),
                 ]);
             }
         }
@@ -85,7 +85,7 @@ fn astar(
     let mut stack = vec![];
     let mut eval_heuristic = |node: &Tuple| -> Result<f64> {
         let mut v = node.clone();
-        v.extend_from_slice(goal);
+        v.extend(goal.iter().cloned());
         let t = v;
         let cost_val = eval_bytecode(&heuristic_bytecode, &t, &mut stack)?;
         let cost = cost_val.get_float().ok_or_else(|| {

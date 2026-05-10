@@ -83,7 +83,7 @@ fn test_unique() {
     unique_aggr.set(&DataValue::from(1)).unwrap();
     assert_eq!(
         unique_aggr.get().unwrap(),
-        DataValue::List(vec![
+        DataValue::list(vec![
             DataValue::from(true),
             DataValue::from(1),
             DataValue::from(2),
@@ -105,10 +105,10 @@ fn test_group_count() {
     group_count_aggr.set(&DataValue::from(3.)).unwrap();
     assert_eq!(
         group_count_aggr.get().unwrap(),
-        DataValue::List(vec![
-            DataValue::List(vec![DataValue::from(1.), DataValue::from(2)]),
-            DataValue::List(vec![DataValue::from(2.), DataValue::from(1)]),
-            DataValue::List(vec![DataValue::from(3.), DataValue::from(3)]),
+        DataValue::list(vec![
+            DataValue::list(vec![DataValue::from(1.), DataValue::from(2)]),
+            DataValue::list(vec![DataValue::from(2.), DataValue::from(1)]),
+            DataValue::list(vec![DataValue::from(3.), DataValue::from(3)]),
         ])
     )
 }
@@ -121,40 +121,40 @@ fn test_union() {
 
     let mut union_aggr = aggr.normal_op.unwrap();
     union_aggr
-        .set(&DataValue::List(
+        .set(&DataValue::list(
             [1, 3, 5, 2].into_iter().map(DataValue::from).collect_vec(),
         ))
         .unwrap();
     union_aggr
-        .set(&DataValue::List(
+        .set(&DataValue::list(
             [10, 2, 4, 6].into_iter().map(DataValue::from).collect_vec(),
         ))
         .unwrap();
     assert_eq!(
         union_aggr.get().unwrap(),
-        DataValue::List(
+        DataValue::list(
             [1, 2, 3, 4, 5, 6, 10]
                 .into_iter()
                 .map(DataValue::from)
                 .collect_vec()
         )
     );
-    let mut v = DataValue::List([1, 3, 5, 2].into_iter().map(DataValue::from).collect_vec());
+    let mut v = DataValue::list([1, 3, 5, 2].into_iter().map(DataValue::from).collect_vec());
 
     let m_aggr_union = aggr.meet_op.unwrap();
     m_aggr_union
         .update(
             &mut v,
-            &DataValue::List([10, 2, 4, 6].into_iter().map(DataValue::from).collect_vec()),
+            &DataValue::list([10, 2, 4, 6].into_iter().map(DataValue::from).collect_vec()),
         )
         .unwrap();
     assert_eq!(
         v,
-        DataValue::Set(
+        DataValue::set(
             [1, 2, 3, 4, 5, 6, 10]
                 .into_iter()
                 .map(DataValue::from)
-                .collect()
+                .collect::<std::collections::BTreeSet<_>>()
         )
     );
 }
@@ -167,31 +167,35 @@ fn test_intersection() {
 
     let mut intersection_aggr = aggr.normal_op.unwrap();
     intersection_aggr
-        .set(&DataValue::List(
+        .set(&DataValue::list(
             [1, 3, 5, 2].into_iter().map(DataValue::from).collect_vec(),
         ))
         .unwrap();
     intersection_aggr
-        .set(&DataValue::List(
+        .set(&DataValue::list(
             [10, 2, 4, 6].into_iter().map(DataValue::from).collect_vec(),
         ))
         .unwrap();
     assert_eq!(
         intersection_aggr.get().unwrap(),
-        DataValue::List([2].into_iter().map(DataValue::from).collect_vec())
+        DataValue::list([2].into_iter().map(DataValue::from).collect_vec())
     );
-    let mut v = DataValue::List([1, 3, 5, 2].into_iter().map(DataValue::from).collect_vec());
+    let mut v = DataValue::list([1, 3, 5, 2].into_iter().map(DataValue::from).collect_vec());
 
     let m_aggr_intersection = aggr.meet_op.unwrap();
     m_aggr_intersection
         .update(
             &mut v,
-            &DataValue::List([10, 2, 4, 6].into_iter().map(DataValue::from).collect_vec()),
+            &DataValue::list([10, 2, 4, 6].into_iter().map(DataValue::from).collect_vec()),
         )
         .unwrap();
     assert_eq!(
         v,
-        DataValue::Set([2].into_iter().map(DataValue::from).collect())
+        DataValue::set(
+            [2].into_iter()
+                .map(DataValue::from)
+                .collect::<std::collections::BTreeSet<_>>(),
+        )
     );
 }
 
@@ -224,11 +228,11 @@ fn test_collect() {
     collect_aggr.set(&DataValue::from(1)).unwrap();
     assert_eq!(
         collect_aggr.get().unwrap(),
-        DataValue::List(
+        DataValue::list(
             [1, 2, 3, 1, 2, 1]
                 .into_iter()
                 .map(DataValue::from)
-                .collect()
+                .collect_vec()
         )
     );
 }
@@ -382,42 +386,42 @@ fn test_min_cost() {
 
     let mut min_cost_aggr = aggr.normal_op.unwrap();
     min_cost_aggr
-        .set(&DataValue::List(vec![DataValue::Null, DataValue::from(3)]))
+        .set(&DataValue::list(vec![DataValue::Null, DataValue::from(3)]))
         .unwrap();
     min_cost_aggr
-        .set(&DataValue::List(vec![
+        .set(&DataValue::list(vec![
             DataValue::from(true),
             DataValue::from(1),
         ]))
         .unwrap();
     min_cost_aggr
-        .set(&DataValue::List(vec![
+        .set(&DataValue::list(vec![
             DataValue::from(false),
             DataValue::from(2),
         ]))
         .unwrap();
     assert_eq!(
         min_cost_aggr.get().unwrap(),
-        DataValue::List(vec![DataValue::from(true), DataValue::from(1.)])
+        DataValue::list(vec![DataValue::from(true), DataValue::from(1.)])
     );
 
     let m_min_cost_aggr = aggr.meet_op.unwrap();
-    let mut v = DataValue::List(vec![DataValue::Null, DataValue::from(3)]);
+    let mut v = DataValue::list(vec![DataValue::Null, DataValue::from(3)]);
     m_min_cost_aggr
         .update(
             &mut v,
-            &DataValue::List(vec![DataValue::from(true), DataValue::from(1)]),
+            &DataValue::list(vec![DataValue::from(true), DataValue::from(1)]),
         )
         .unwrap();
     m_min_cost_aggr
         .update(
             &mut v,
-            &DataValue::List(vec![DataValue::from(false), DataValue::from(2)]),
+            &DataValue::list(vec![DataValue::from(false), DataValue::from(2)]),
         )
         .unwrap();
     assert_eq!(
         v,
-        DataValue::List(vec![DataValue::from(true), DataValue::from(1)])
+        DataValue::list(vec![DataValue::from(true), DataValue::from(1)])
     );
 }
 
@@ -428,16 +432,16 @@ fn test_latest_by() {
 
     let mut latest_by_aggr = aggr.normal_op.unwrap();
     latest_by_aggr
-        .set(&DataValue::List(vec![DataValue::Null, DataValue::from(3)]))
+        .set(&DataValue::list(vec![DataValue::Null, DataValue::from(3)]))
         .unwrap();
     latest_by_aggr
-        .set(&DataValue::List(vec![
+        .set(&DataValue::list(vec![
             DataValue::from(true),
             DataValue::from(1),
         ]))
         .unwrap();
     latest_by_aggr
-        .set(&DataValue::List(vec![
+        .set(&DataValue::list(vec![
             DataValue::from(false),
             DataValue::from(2),
         ]))
@@ -453,42 +457,42 @@ fn test_shortest() {
 
     let mut shortest_aggr = aggr.normal_op.unwrap();
     shortest_aggr
-        .set(&DataValue::List(
-            [1, 2, 3].into_iter().map(DataValue::from).collect(),
+        .set(&DataValue::list(
+            [1, 2, 3].into_iter().map(DataValue::from).collect_vec(),
         ))
         .unwrap();
     shortest_aggr
-        .set(&DataValue::List(
-            [2].into_iter().map(DataValue::from).collect(),
+        .set(&DataValue::list(
+            [2].into_iter().map(DataValue::from).collect_vec(),
         ))
         .unwrap();
     shortest_aggr
-        .set(&DataValue::List(
-            [2, 3].into_iter().map(DataValue::from).collect(),
+        .set(&DataValue::list(
+            [2, 3].into_iter().map(DataValue::from).collect_vec(),
         ))
         .unwrap();
     assert_eq!(
         shortest_aggr.get().unwrap(),
-        DataValue::List([2].into_iter().map(DataValue::from).collect())
+        DataValue::list([2].into_iter().map(DataValue::from).collect_vec())
     );
 
     let m_shortest_aggr = aggr.meet_op.unwrap();
-    let mut v = DataValue::List([1, 2, 3].into_iter().map(DataValue::from).collect());
+    let mut v = DataValue::list([1, 2, 3].into_iter().map(DataValue::from).collect_vec());
     m_shortest_aggr
         .update(
             &mut v,
-            &DataValue::List([2].into_iter().map(DataValue::from).collect()),
+            &DataValue::list([2].into_iter().map(DataValue::from).collect_vec()),
         )
         .unwrap();
     m_shortest_aggr
         .update(
             &mut v,
-            &DataValue::List([2, 3].into_iter().map(DataValue::from).collect()),
+            &DataValue::list([2, 3].into_iter().map(DataValue::from).collect_vec()),
         )
         .unwrap();
     assert_eq!(
         v,
-        DataValue::List([2].into_iter().map(DataValue::from).collect())
+        DataValue::list([2].into_iter().map(DataValue::from).collect_vec())
     );
 }
 
@@ -509,18 +513,18 @@ fn test_choice() {
     m_coalesce_aggr
         .update(
             &mut v,
-            &DataValue::List([2].into_iter().map(DataValue::from).collect()),
+            &DataValue::list([2].into_iter().map(DataValue::from).collect_vec()),
         )
         .unwrap();
     m_coalesce_aggr
         .update(
             &mut v,
-            &DataValue::List([2, 3].into_iter().map(DataValue::from).collect()),
+            &DataValue::list([2, 3].into_iter().map(DataValue::from).collect_vec()),
         )
         .unwrap();
     assert_eq!(
         v,
-        DataValue::List([2].into_iter().map(DataValue::from).collect())
+        DataValue::list([2].into_iter().map(DataValue::from).collect_vec())
     );
 }
 

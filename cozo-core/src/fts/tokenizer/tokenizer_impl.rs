@@ -293,6 +293,7 @@ pub(crate) trait TokenStream {
     /// and push the tokens to a sink function.
     ///
     /// Remove this.
+    #[allow(dead_code)]
     fn process(&mut self, sink: &mut dyn FnMut(&Token)) {
         while self.advance() {
             sink(self.token());

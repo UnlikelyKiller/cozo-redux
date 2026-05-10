@@ -82,7 +82,7 @@ impl TokenizerConfig {
             "NGram" => {
                 let min_gram = self
                     .args
-                    .get(0)
+                    .first()
                     .unwrap_or(&DataValue::from(1))
                     .get_int()
                     .ok_or_else(|| miette!("First argument `min_gram` must be an integer"))?;
@@ -113,7 +113,7 @@ impl TokenizerConfig {
                         miette!("Second argument `use_hmm` to Cangjie must be a boolean")
                     })?,
                 };
-                let option = match self.args.get(0) {
+                let option = match self.args.first() {
                     None => cangjie::options::TokenizerOption::Default { hmm },
                     Some(d) => {
                         let s = d.get_str().ok_or_else(|| {
@@ -143,7 +143,7 @@ impl TokenizerConfig {
             "LowerCase" | "Lowercase" => LowerCaser.into(),
             "RemoveLong" => RemoveLongFilter::limit(
                 self.args
-                    .get(0)
+                    .first()
                     .ok_or_else(|| miette!("Missing first argument `min_length`"))?
                     .get_int()
                     .ok_or_else(|| miette!("First argument `min_length` must be an integer"))?
@@ -154,11 +154,11 @@ impl TokenizerConfig {
                 let mut list_values = Vec::new();
                 match self
                     .args
-                    .get(0)
+                    .first()
                     .ok_or_else(|| miette!("Missing first argument `compound_words_list`"))?
                 {
                     DataValue::List(l) => {
-                        for v in l {
+                        for v in l.iter() {
                             list_values.push(
                                 v.get_str()
                                     .ok_or_else(|| {
@@ -176,7 +176,7 @@ impl TokenizerConfig {
             "Stemmer" => {
                 let language = match self
                     .args
-                    .get(0)
+                    .first()
                     .ok_or_else(|| miette!("Missing first argument `language` to Stemmer"))?
                     .get_str()
                     .ok_or_else(|| {
@@ -208,13 +208,13 @@ impl TokenizerConfig {
                 Stemmer::new(language).into()
             }
             "Stopwords" => {
-                match self.args.get(0).ok_or_else(|| {
+                match self.args.first().ok_or_else(|| {
                     miette!("Filter Stopwords requires language name or a list of stopwords")
                 })? {
                     DataValue::Str(name) => StopWordFilter::for_lang(name)?.into(),
                     DataValue::List(l) => {
                         let mut stopwords = Vec::new();
-                        for v in l {
+                        for v in l.iter() {
                             stopwords.push(
                                 v.get_str()
                                     .ok_or_else(|| {
@@ -235,6 +235,7 @@ impl TokenizerConfig {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde_derive::Serialize, serde_derive::Deserialize)]
 pub(crate) struct FtsIndexConfig {
     base_relation: SmartString<LazyCompact>,

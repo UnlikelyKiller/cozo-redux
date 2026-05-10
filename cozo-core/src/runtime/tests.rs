@@ -54,20 +54,29 @@ fn test_limit_offset() {
 fn test_normal_aggr_empty() {
     let db = DbInstance::default();
     let res = db.run_default("?[count(a)] := a in []").unwrap().rows;
-    assert_eq!(res, vec![vec![DataValue::from(0)]]);
+    assert_eq!(
+        res.into_iter().map(|r| r.into_vec()).collect_vec(),
+        vec![vec![DataValue::from(0)]]
+    );
 }
 
 #[test]
 fn test_meet_aggr_empty() {
     let db = DbInstance::default();
     let res = db.run_default("?[min(a)] := a in []").unwrap().rows;
-    assert_eq!(res, vec![vec![DataValue::Null]]);
+    assert_eq!(
+        res.into_iter().map(|r| r.into_vec()).collect_vec(),
+        vec![vec![DataValue::Null]]
+    );
 
     let res = db
         .run_default("?[min(a), count(a)] := a in []")
         .unwrap()
         .rows;
-    assert_eq!(res, vec![vec![DataValue::Null, DataValue::from(0)]]);
+    assert_eq!(
+        res.into_iter().map(|r| r.into_vec()).collect_vec(),
+        vec![vec![DataValue::Null, DataValue::from(0)]]
+    );
 }
 
 #[test]
@@ -375,14 +384,14 @@ fn test_trigger() {
         .unwrap();
     let frs = ret.get("friends").unwrap();
     assert_eq!(
-        vec![DataValue::from(1), DataValue::from(2), DataValue::from(3)],
-        frs.rows[0]
+        frs.rows[0].as_slice(),
+        [DataValue::from(1), DataValue::from(2), DataValue::from(3)]
     );
 
     let frs_rev = ret.get("friends.rev").unwrap();
     assert_eq!(
-        vec![DataValue::from(2), DataValue::from(1), DataValue::from(3)],
-        frs_rev.rows[0]
+        frs_rev.rows[0].as_slice(),
+        [DataValue::from(2), DataValue::from(1), DataValue::from(3)]
     );
     db.run_default(r"?[fr, to] <- [[1,2], [2,3]] :rm friends {fr, to}")
         .unwrap();
@@ -420,8 +429,8 @@ fn test_callback() {
     assert_eq!(collected[1].1.rows[0].len(), 3);
     assert_eq!(collected[1].2.rows.len(), 1);
     assert_eq!(
-        collected[1].2.rows[0],
-        vec![DataValue::from(1), DataValue::from(2), DataValue::from(3)]
+        collected[1].2.rows[0].as_slice(),
+        [DataValue::from(1), DataValue::from(2), DataValue::from(3)]
     );
     assert_eq!(collected[2].0, CallbackOp::Rm);
     assert_eq!(collected[2].1.rows.len(), 2);

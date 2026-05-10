@@ -61,7 +61,7 @@ impl FixedRule for Dfs {
                 }
 
                 let cand_tuple = if skip_query_nodes {
-                    vec![candidate.clone()]
+                    vec![candidate.clone()].into()
                 } else {
                     nodes
                         .prefix_iter(&candidate)?
@@ -104,7 +104,7 @@ impl FixedRule for Dfs {
             }
             route.push(starting.clone());
             route.reverse();
-            let tuple = vec![starting, ending, DataValue::List(route)];
+            let tuple = vec![starting, ending, DataValue::list(route)];
             out.put(tuple);
             poison.check()?;
         }

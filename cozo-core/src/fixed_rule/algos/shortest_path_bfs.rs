@@ -95,7 +95,7 @@ impl FixedRule for ShortestPathBFS {
                     let tuple = vec![
                         starting_node.clone(),
                         ending_node.clone(),
-                        DataValue::List(route),
+                        DataValue::list(route),
                     ];
                     out.put(tuple);
                 } else {

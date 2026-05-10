@@ -28,11 +28,11 @@ fn main() {
                                     inner: Unification {
                                         binding: sym_a,
                                         expr: cozo::Expr::Const {
-                                            val: DataValue::List(vec![
+                                            val: DataValue::List(Box::new(vec![
                                                 DataValue::Num(Num::Int(1)),
                                                 DataValue::Num(Num::Int(2)),
                                                 DataValue::Num(Num::Int(3)),
-                                            ]),
+                                            ])),
                                             span: Default::default(),
                                         },
                                         one_many_unif: true,

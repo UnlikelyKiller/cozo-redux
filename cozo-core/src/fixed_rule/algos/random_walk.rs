@@ -78,7 +78,7 @@ impl FixedRule for RandomWalk {
                             .iter()
                             .map(|t| -> Result<f64> {
                                 let mut cand = current_tuple.clone();
-                                cand.extend_from_slice(t);
+                                cand.extend(t.iter().cloned());
                                 Ok(match eval_bytecode(weight_expr, &cand, &mut stack)? {
                                     DataValue::Num(n) => {
                                         let f = n.get_float();
@@ -120,7 +120,7 @@ impl FixedRule for RandomWalk {
                 out.put(vec![
                     DataValue::from(counter),
                     start_node_key.clone(),
-                    DataValue::List(path),
+                    DataValue::list(path),
                 ]);
             }
         }

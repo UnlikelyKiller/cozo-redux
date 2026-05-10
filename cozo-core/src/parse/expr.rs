@@ -9,10 +9,10 @@
 use std::collections::BTreeMap;
 
 use itertools::Itertools;
-use std::sync::LazyLock;
 use miette::{bail, ensure, Diagnostic, Result};
 use pest::pratt_parser::{Op, PrattParser};
 use smartstring::{LazyCompact, SmartString};
+use std::sync::LazyLock;
 use thiserror::Error;
 
 use crate::data::expr::{get_op, Bytecode, Expr, NoImplementationError};
@@ -305,6 +305,7 @@ fn build_term(pair: Pair<'_>, param_pool: &BTreeMap<String, DataValue>) -> Resul
             #[derive(Error, Diagnostic, Debug)]
             #[error("Named function '{0}' not found")]
             #[diagnostic(code(parser::func_not_function))]
+            #[allow(dead_code)]
             struct FuncNotFoundError(String, #[label] SourceSpan);
 
             match ident {

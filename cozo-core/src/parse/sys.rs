@@ -97,6 +97,7 @@ pub enum HnswDistance {
     Cosine,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Diagnostic, Error)]
 #[error("Cannot interpret {0} as process ID")]
 #[diagnostic(code(parser::not_proc_id))]

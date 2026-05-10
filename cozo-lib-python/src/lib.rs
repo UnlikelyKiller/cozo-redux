@@ -20,7 +20,11 @@ fn py_to_rows(ob: &Bound<'_, PyAny>) -> PyResult<Vec<Vec<DataValue>>> {
     let rows = ob.extract::<Vec<Vec<Bound<'_, PyAny>>>>()?;
     let res: Vec<Vec<DataValue>> = rows
         .into_iter()
-        .map(|row| row.into_iter().map(|el| py_to_value(&el)).collect::<PyResult<_>>())
+        .map(|row| {
+            row.into_iter()
+                .map(|el| py_to_value(&el))
+                .collect::<PyResult<_>>()
+        })
         .collect::<PyResult<_>>()?;
     Ok(res)
 }
@@ -63,14 +67,14 @@ fn py_to_value(ob: &Bound<'_, PyAny>) -> PyResult<DataValue> {
             let el = py_to_value(&el)?;
             coll.push(el)
         }
-        DataValue::List(coll)
+        DataValue::List(Box::new(coll))
     } else if let Ok(l) = ob.downcast::<PyList>() {
         let mut coll = Vec::with_capacity(l.len());
         for el in l {
             let el = py_to_value(&el)?;
             coll.push(el)
         }
-        DataValue::List(coll)
+        DataValue::List(Box::new(coll))
     } else if let Ok(d) = ob.downcast::<PyDict>() {
         let mut coll = serde_json::Map::default();
         for (k, v) in d {
@@ -82,7 +86,7 @@ fn py_to_value(ob: &Bound<'_, PyAny>) -> PyResult<DataValue> {
             let v = serde_json::Value::from(py_to_value(&v)?);
             coll.insert(k, v);
         }
-        DataValue::Json(JsonData(json!(coll)))
+        DataValue::Json(Box::new(JsonData(json!(coll))))
     } else {
         return Err(PyException::new_err(format!(
             "Cannot convert {ob} into Cozo value"
@@ -165,7 +169,7 @@ fn value_to_py(val: DataValue, py: Python<'_>) -> PyObject {
             [vld.timestamp.0 .0.into_py(py), vld.is_assert.0.into_py(py)].into_py(py)
         }
         DataValue::Bot => py.None(),
-        DataValue::Vec(v) => match v {
+        DataValue::Vec(v) => match *v {
             Vector::F32(a) => {
                 let vs: Vec<_> = a.into_iter().map(|v| v.into_py(py)).collect();
                 vs.into_py(py)
@@ -175,11 +179,14 @@ fn value_to_py(val: DataValue, py: Python<'_>) -> PyObject {
                 vs.into_py(py)
             }
         },
-        DataValue::Json(JsonData(j)) => json_to_py(j, py),
+        DataValue::Json(j) => json_to_py(j.0, py),
     }
 }
 
-fn rows_to_py_rows(rows: Vec<Vec<DataValue>>, py: Python<'_>) -> PyObject {
+fn rows_to_py_rows<R>(rows: Vec<R>, py: Python<'_>) -> PyObject
+where
+    R: IntoIterator<Item = DataValue>,
+{
     rows.into_iter()
         .map(|row| {
             row.into_iter()
@@ -268,11 +275,7 @@ impl CozoDbPy {
                         let old_py = rows_to_py_rows(old.rows, py);
                         let args = PyTuple::new_bound(
                             py,
-                            [
-                                op.into_any(),
-                                new_py.into_bound(py),
-                                old_py.into_bound(py),
-                            ],
+                            [op.into_any(), new_py.into_bound(py), old_py.into_bound(py)],
                         );
                         let callable = cb.bind(py);
                         if let Err(err) = callable.call1(args) {

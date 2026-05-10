@@ -28,14 +28,15 @@ pub struct RegularTempStore {
     inner: BTreeMap<Tuple, bool>,
 }
 
-const EMPTY_TUPLE_REF: &Tuple = &vec![];
+const EMPTY_TUPLE: Tuple = Tuple::new_const();
+const EMPTY_TUPLE_REF: &Tuple = &EMPTY_TUPLE;
 
 impl RegularTempStore {
     pub(crate) fn wrap(self) -> TempStore {
         TempStore::Normal(self)
     }
     /// Tests if a key already exists in the store.
-    pub fn exists(&self, key: &Tuple) -> bool {
+    pub fn exists(&self, key: &[DataValue]) -> bool {
         self.inner.contains_key(key)
     }
 
@@ -45,22 +46,22 @@ impl RegularTempStore {
         upper: &Tuple,
         upper_inclusive: bool,
     ) -> impl Iterator<Item = TupleInIter<'_>> {
-        let lower_bound = Included(lower.to_vec());
+        let lower_bound = Included(lower.clone());
         let upper_bound = if upper_inclusive {
-            Included(upper.to_vec())
+            Included(upper.clone())
         } else {
-            Excluded(upper.to_vec())
+            Excluded(upper.clone())
         };
         self.inner
             .range((lower_bound, upper_bound))
             .map(|(t, skip)| TupleInIter(t, EMPTY_TUPLE_REF, *skip))
     }
     /// Add a tuple to the store
-    pub fn put(&mut self, tuple: Tuple) {
-        self.inner.insert(tuple, false);
+    pub fn put<T: Into<Tuple>>(&mut self, tuple: T) {
+        self.inner.insert(tuple.into(), false);
     }
-    pub(crate) fn put_with_skip(&mut self, tuple: Tuple) {
-        self.inner.insert(tuple, true);
+    pub(crate) fn put_with_skip<T: Into<Tuple>>(&mut self, tuple: T) {
+        self.inner.insert(tuple.into(), true);
     }
     // returns true if prev is guaranteed to be the same as self after this function call,
     // false if we are not sure.
@@ -99,7 +100,7 @@ impl MeetAggrStore {
     pub(crate) fn wrap(self) -> TempStore {
         TempStore::MeetAggr(self)
     }
-    pub(crate) fn exists(&self, key: &Tuple) -> bool {
+    pub(crate) fn exists(&self, key: &[DataValue]) -> bool {
         let truncated = &key[0..self.grouping_len];
         self.inner.contains_key(truncated)
     }
@@ -121,7 +122,8 @@ impl MeetAggrStore {
     }
     // also need to check if value exists beforehand! use the idempotency!
     // need to think this through more carefully.
-    pub(crate) fn meet_put(&mut self, tuple: Tuple) -> Result<bool> {
+    pub(crate) fn meet_put<T: Into<Tuple>>(&mut self, tuple: T) -> Result<bool> {
+        let tuple = tuple.into();
         let (key_part, val_part) = tuple.split_at(self.grouping_len);
         match self.inner.get_mut(key_part) {
             Some(prev_aggr) => {
@@ -133,7 +135,10 @@ impl MeetAggrStore {
                 Ok(changed)
             }
             None => {
-                self.inner.insert(key_part.to_vec(), val_part.to_vec());
+                self.inner.insert(
+                    key_part.iter().cloned().collect(),
+                    val_part.iter().cloned().collect(),
+                );
                 Ok(true)
             }
         }
@@ -145,17 +150,17 @@ impl MeetAggrStore {
         upper_inclusive: bool,
     ) -> impl Iterator<Item = TupleInIter<'_>> {
         let lower_key = if lower.len() > self.grouping_len {
-            lower[0..self.grouping_len].to_vec()
+            lower[0..self.grouping_len].iter().cloned().collect()
         } else {
-            lower.to_vec()
+            lower.clone()
         };
         let upper_key = if upper.len() > self.grouping_len {
-            upper[0..self.grouping_len].to_vec()
+            upper[0..self.grouping_len].iter().cloned().collect()
         } else {
-            upper.to_vec()
+            upper.clone()
         };
-        let lower = lower.to_vec();
-        let upper = upper.to_vec();
+        let lower = lower.clone();
+        let upper = upper.clone();
         self.inner
             .range(lower_key..=upper_key)
             .filter_map(move |(k, v)| {
@@ -220,7 +225,7 @@ pub(crate) enum TempStore {
 }
 
 impl TempStore {
-    fn exists(&self, key: &Tuple) -> bool {
+    fn exists(&self, key: &[DataValue]) -> bool {
         match self {
             TempStore::Normal(n) => n.exists(key),
             TempStore::MeetAggr(m) => m.exists(key),
@@ -254,7 +259,7 @@ pub(crate) struct EpochStore {
 }
 
 impl EpochStore {
-    pub(crate) fn exists(&self, key: &Tuple) -> bool {
+    pub(crate) fn exists(&self, key: &[DataValue]) -> bool {
         self.total.exists(key)
     }
     pub(crate) fn new_normal(arity: usize) -> Self {
@@ -294,42 +299,51 @@ impl EpochStore {
     }
     pub(crate) fn range_iter(
         &self,
-        lower: &Tuple,
-        upper: &Tuple,
+        lower: &[DataValue],
+        upper: &[DataValue],
         upper_inclusive: bool,
     ) -> impl Iterator<Item = TupleInIter<'_>> {
-        self.total.range_iter(lower, upper, upper_inclusive)
+        let lower: Tuple = lower.iter().cloned().collect();
+        let upper: Tuple = upper.iter().cloned().collect();
+        self.total.range_iter(&lower, &upper, upper_inclusive)
     }
     pub(crate) fn delta_range_iter(
         &self,
-        lower: &Tuple,
-        upper: &Tuple,
+        lower: &[DataValue],
+        upper: &[DataValue],
         upper_inclusive: bool,
     ) -> impl Iterator<Item = TupleInIter<'_>> {
+        let lower: Tuple = lower.iter().cloned().collect();
+        let upper: Tuple = upper.iter().cloned().collect();
         if self.use_total_for_delta {
-            self.total.range_iter(lower, upper, upper_inclusive)
+            self.total.range_iter(&lower, &upper, upper_inclusive)
         } else {
-            self.delta.range_iter(lower, upper, upper_inclusive)
+            self.delta.range_iter(&lower, &upper, upper_inclusive)
         }
     }
-    pub(crate) fn prefix_iter(&self, prefix: &Tuple) -> impl Iterator<Item = TupleInIter<'_>> {
-        let mut upper = prefix.to_vec();
+    pub(crate) fn prefix_iter(
+        &self,
+        prefix: &[DataValue],
+    ) -> impl Iterator<Item = TupleInIter<'_>> {
+        let lower: Tuple = prefix.iter().cloned().collect();
+        let mut upper = lower.clone();
         upper.push(DataValue::Bot);
-        self.range_iter(prefix, &upper, true)
+        self.range_iter(&lower, &upper, true)
     }
     pub(crate) fn delta_prefix_iter(
         &self,
-        prefix: &Tuple,
+        prefix: &[DataValue],
     ) -> impl Iterator<Item = TupleInIter<'_>> {
-        let mut upper = prefix.to_vec();
+        let lower: Tuple = prefix.iter().cloned().collect();
+        let mut upper = lower.clone();
         upper.push(DataValue::Bot);
-        self.delta_range_iter(prefix, &upper, true)
+        self.delta_range_iter(&lower, &upper, true)
     }
     pub(crate) fn all_iter(&self) -> impl Iterator<Item = TupleInIter<'_>> {
-        self.prefix_iter(&vec![])
+        self.prefix_iter(EMPTY_TUPLE_REF)
     }
     pub(crate) fn delta_all_iter(&self) -> impl Iterator<Item = TupleInIter<'_>> {
-        self.delta_prefix_iter(&vec![])
+        self.delta_prefix_iter(EMPTY_TUPLE_REF)
     }
     pub(crate) fn early_returned_iter(&self) -> impl Iterator<Item = TupleInIter<'_>> {
         self.all_iter().filter(|t| !t.should_skip())
@@ -349,7 +363,7 @@ impl<'a> TupleInIter<'a> {
         self.2
     }
     pub(crate) fn into_tuple(self) -> Tuple {
-        self.into_iter().cloned().collect_vec()
+        self.into_iter().cloned().collect()
     }
 }
 
@@ -372,7 +386,7 @@ pub(crate) struct TupleInIterIterator<'a> {
 
 impl PartialEq for TupleInIter<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.into_iter().eq(other.into_iter())
+        self.into_iter().eq(*other)
     }
 }
 
@@ -380,7 +394,7 @@ impl Eq for TupleInIter<'_> {}
 
 impl Ord for TupleInIter<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.into_iter().cmp(other.into_iter())
+        self.into_iter().cmp(*other)
     }
 }
 
@@ -408,10 +422,7 @@ impl<'a> Iterator for TupleInIterIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let ret = match self.inner.0.get(self.idx) {
             Some(d) => d,
-            None => match self.inner.1.get(self.idx - self.inner.0.len()) {
-                None => return None,
-                Some(d) => d,
-            },
+            None => self.inner.1.get(self.idx - self.inner.0.len())?,
         };
         self.idx += 1;
         Some(ret)

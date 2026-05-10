@@ -12,13 +12,13 @@ extern crate test;
 
 use cozo::{DataValue, DbInstance, NamedRows, Validity};
 use itertools::Itertools;
-use std::sync::LazyLock;
 use rand::Rng;
 use rayon::prelude::*;
 use std::cmp::max;
 use std::collections::BTreeMap;
-use web_time::Instant;
+use std::sync::LazyLock;
 use test::Bencher;
+use web_time::Instant;
 
 fn insert_data(db: &DbInstance) {
     let insert_plain_time = Instant::now();

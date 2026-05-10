@@ -24,6 +24,7 @@ use serde::ser::SerializeTuple;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::digest::FixedOutput;
 use sha2::{Digest, Sha256};
+use smallvec::SmallVec;
 use smartstring::{LazyCompact, SmartString};
 use uuid::Uuid;
 
@@ -92,7 +93,7 @@ impl Ord for RegexWrapper {
 
 impl PartialOrd for RegexWrapper {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.0.as_str().partial_cmp(other.0.as_str())
+        Some(self.cmp(other))
     }
 }
 
@@ -158,19 +159,75 @@ pub enum DataValue {
     /// UUID
     Uuid(UuidWrapper),
     /// Regex, used internally only
-    Regex(RegexWrapper),
+    Regex(Box<RegexWrapper>),
     /// list
-    List(Vec<DataValue>),
+    List(Box<Vec<DataValue>>),
     /// set, used internally only
-    Set(BTreeSet<DataValue>),
+    Set(Box<BTreeSet<DataValue>>),
     /// Array, mainly for proximity search
-    Vec(Vector),
+    Vec(Box<Vector>),
     /// Json
-    Json(JsonData),
+    Json(Box<JsonData>),
     /// validity,
     Validity(Validity),
     /// bottom type, used internally only
     Bot,
+}
+
+pub(crate) trait IntoDataValueList {
+    #[allow(clippy::box_collection)] // intentional: keeps DataValue small via indirection
+    fn into_data_value_list(self) -> Box<Vec<DataValue>>;
+}
+
+impl IntoDataValueList for Vec<DataValue> {
+    fn into_data_value_list(self) -> Box<Vec<DataValue>> {
+        Box::new(self)
+    }
+}
+
+impl IntoDataValueList for Box<Vec<DataValue>> {
+    fn into_data_value_list(self) -> Box<Vec<DataValue>> {
+        self
+    }
+}
+
+impl IntoDataValueList for SmallVec<[DataValue; 6]> {
+    fn into_data_value_list(self) -> Box<Vec<DataValue>> {
+        Box::new(self.into_vec())
+    }
+}
+
+pub(crate) trait IntoDataValueSet {
+    #[allow(clippy::box_collection)] // intentional: keeps DataValue small via indirection
+    fn into_data_value_set(self) -> Box<BTreeSet<DataValue>>;
+}
+
+impl IntoDataValueSet for BTreeSet<DataValue> {
+    fn into_data_value_set(self) -> Box<BTreeSet<DataValue>> {
+        Box::new(self)
+    }
+}
+
+impl IntoDataValueSet for Box<BTreeSet<DataValue>> {
+    fn into_data_value_set(self) -> Box<BTreeSet<DataValue>> {
+        self
+    }
+}
+
+pub(crate) trait IntoDataValueJson {
+    fn into_data_value_json(self) -> Box<JsonData>;
+}
+
+impl IntoDataValueJson for JsonData {
+    fn into_data_value_json(self) -> Box<JsonData> {
+        Box::new(self)
+    }
+}
+
+impl IntoDataValueJson for Box<JsonData> {
+    fn into_data_value_json(self) -> Box<JsonData> {
+        self
+    }
 }
 
 /// Wrapper for JsonValue
@@ -485,7 +542,7 @@ impl<T: Into<DataValue>> From<Vec<T>> for DataValue {
     where
         T: Into<DataValue>,
     {
-        DataValue::List(v.into_iter().map(Into::into).collect())
+        DataValue::list(v.into_iter().map(Into::into).collect::<Vec<_>>())
     }
 }
 
@@ -621,15 +678,15 @@ impl Display for DataValue {
             DataValue::Regex(rx) => {
                 write!(f, "regex({:?})", rx.0.as_str())
             }
-            DataValue::List(ls) => f.debug_list().entries(ls).finish(),
-            DataValue::Set(s) => f.debug_list().entries(s).finish(),
+            DataValue::List(ls) => f.debug_list().entries(ls.iter()).finish(),
+            DataValue::Set(s) => f.debug_list().entries(s.iter()).finish(),
             DataValue::Bot => write!(f, "null"),
             DataValue::Validity(v) => f
                 .debug_struct("Validity")
                 .field("timestamp", &v.timestamp.0)
                 .field("retracted", &v.is_assert)
                 .finish(),
-            DataValue::Vec(a) => match a {
+            DataValue::Vec(a) => match a.as_ref() {
                 Vector::F32(a) => {
                     write!(f, "vec({:?})", a.to_vec())
                 }
@@ -649,6 +706,21 @@ impl Display for DataValue {
 }
 
 impl DataValue {
+    pub(crate) fn regex(value: RegexWrapper) -> Self {
+        Self::Regex(Box::new(value))
+    }
+    pub(crate) fn list(values: impl IntoDataValueList) -> Self {
+        Self::List(values.into_data_value_list())
+    }
+    pub(crate) fn set(values: impl IntoDataValueSet) -> Self {
+        Self::Set(values.into_data_value_set())
+    }
+    pub(crate) fn vec(value: Vector) -> Self {
+        Self::Vec(Box::new(value))
+    }
+    pub(crate) fn json(value: impl IntoDataValueJson) -> Self {
+        Self::Json(value.into_data_value_json())
+    }
     /// Returns a slice of bytes if this one is a Bytes
     pub fn get_bytes(&self) -> Option<&[u8]> {
         match self {
@@ -712,3 +784,25 @@ impl DataValue {
 }
 
 pub(crate) const LARGEST_UTF_CHAR: char = '\u{10ffff}';
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::mem::size_of;
+
+    #[test]
+    fn test_datavalue_size() {
+        let size = size_of::<DataValue>();
+        assert!(size <= 32, "DataValue is {size} bytes");
+    }
+
+    #[test]
+    fn test_deeply_nested_list_comparison() {
+        let mut v = DataValue::Null;
+        for _ in 0..1000 {
+            v = DataValue::list(vec![v]);
+        }
+        let v2 = v.clone();
+        assert_eq!(v, v2);
+    }
+}

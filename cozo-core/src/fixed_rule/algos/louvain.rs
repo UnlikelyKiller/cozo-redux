@@ -53,7 +53,7 @@ impl FixedRule for CommunityDetectionLouvain {
             if let Some(l) = keep_depth {
                 labels.truncate(l);
             }
-            out.put(vec![DataValue::List(labels), node]);
+            out.put(vec![DataValue::list(labels), node]);
         }
 
         Ok(())

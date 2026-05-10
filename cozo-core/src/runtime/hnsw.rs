@@ -139,7 +139,7 @@ impl VectorCache {
                     }
                     match field {
                         DataValue::Vec(v) => {
-                            self.cache.insert(key.clone(), v.clone());
+                            self.cache.insert(key.clone(), *v.clone());
                         }
                         _ => bail!("Cannot interpret {} as vector", field),
                     }
@@ -164,7 +164,7 @@ impl<'a> SessionTx<'a> {
         vec_cache: &mut VectorCache,
     ) -> Result<()> {
         let tuple_key = &tuple[..orig_table.metadata.keys.len()];
-        vec_cache.insert((tuple_key.to_vec(), idx, subidx), q.clone());
+        vec_cache.insert((tuple_key.to_vec().into(), idx, subidx), q.clone());
         let hash = q.get_hash();
         let mut canary_tuple = vec![DataValue::from(0)];
         for _ in 0..2 {
@@ -193,7 +193,7 @@ impl<'a> SessionTx<'a> {
             let ep = ep?;
             // bottom level since we are going up
             let bottom_level = ep[0].get_int().unwrap();
-            let ep_t_key = ep[1..orig_table.metadata.keys.len() + 1].to_vec();
+            let ep_t_key = ep[1..orig_table.metadata.keys.len() + 1].to_vec().into();
             let ep_idx = ep[orig_table.metadata.keys.len() + 1].get_int().unwrap() as usize;
             let ep_subidx = ep[orig_table.metadata.keys.len() + 2].get_int().unwrap() as i32;
             let ep_key = (ep_t_key, ep_idx, ep_subidx);
@@ -605,7 +605,7 @@ impl<'a> SessionTx<'a> {
 
                 let key_idx = tuple[2 * key_len + 3].get_int().unwrap() as usize;
                 let key_subidx = tuple[2 * key_len + 4].get_int().unwrap() as i32;
-                let key_tup = tuple[key_len + 3..2 * key_len + 3].to_vec();
+                let key_tup: Tuple = tuple[key_len + 3..2 * key_len + 3].to_vec().into();
                 if key_tup == cand_key.0 {
                     None
                 } else {
@@ -733,12 +733,12 @@ impl<'a> SessionTx<'a> {
     ) -> Result<()> {
         let mut prefix = vec![DataValue::from(0)];
         prefix.extend_from_slice(&tuple[0..orig_table.metadata.keys.len()]);
-        let candidates: FxHashSet<_> = idx_table
+        let candidates: FxHashSet<CompoundKey> = idx_table
             .scan_prefix(self, &prefix)
             .filter_map(|t| match t {
                 Ok(t) => Some({
                     (
-                        t[1..orig_table.metadata.keys.len() + 1].to_vec(),
+                        t[1..orig_table.metadata.keys.len() + 1].to_vec().into(),
                         t[orig_table.metadata.keys.len() + 1].get_int().unwrap() as usize,
                         t[orig_table.metadata.keys.len() + 2].get_int().unwrap() as i32,
                     )
@@ -759,7 +759,7 @@ impl<'a> SessionTx<'a> {
         orig_table: &RelationHandle,
         idx_table: &RelationHandle,
     ) -> Result<()> {
-        let compound_key = (tuple_key.to_vec(), idx, subidx);
+        let compound_key = (tuple_key.to_vec().into(), idx, subidx);
         // Go down the layers and remove all the links
         let mut encountered_singletons = false;
         for neg_layer in 0i64.. {
@@ -907,7 +907,9 @@ impl<'a> SessionTx<'a> {
                     return Ok(vec![]);
                 }
             };
-            let ep_t_key = ep[1..config.base_handle.metadata.keys.len() + 1].to_vec();
+            let ep_t_key = ep[1..config.base_handle.metadata.keys.len() + 1]
+                .to_vec()
+                .into();
             let ep_subidx = ep[config.base_handle.metadata.keys.len() + 2]
                 .get_int()
                 .unwrap() as i32;

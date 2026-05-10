@@ -50,7 +50,7 @@ pub(crate) trait MemCmpEncoder: Write {
             DataValue::Bool(true) => self.write_u8(TRUE_TAG).unwrap(),
             DataValue::Vec(arr) => {
                 self.write_u8(VEC_TAG).unwrap();
-                match arr {
+                match arr.as_ref() {
                     Vector::F32(a) => {
                         self.write_u8(VEC_F32).unwrap();
                         let l = a.len();
@@ -101,14 +101,14 @@ pub(crate) trait MemCmpEncoder: Write {
             }
             DataValue::List(l) => {
                 self.write_u8(LIST_TAG).unwrap();
-                for el in l {
+                for el in l.iter() {
                     self.encode_datavalue(el);
                 }
                 self.write_u8(INIT_TAG).unwrap()
             }
             DataValue::Set(s) => {
                 self.write_u8(SET_TAG).unwrap();
-                for el in s {
+                for el in s.iter() {
                     self.encode_datavalue(el);
                 }
                 self.write_u8(INIT_TAG).unwrap()
@@ -273,7 +273,7 @@ impl DataValue {
             JSON_TAG => {
                 let (bytes, remaining) = decode_bytes(remaining);
                 (
-                    DataValue::Json(JsonData(serde_json::from_slice(&bytes).unwrap())),
+                    DataValue::json(JsonData(serde_json::from_slice(&bytes).unwrap())),
                     remaining,
                 )
             }
@@ -295,7 +295,7 @@ impl DataValue {
                 let (bytes, remaining) = decode_bytes(remaining);
                 let s = unsafe { String::from_utf8_unchecked(bytes) };
                 (
-                    DataValue::Regex(RegexWrapper(Regex::from_str(&s).unwrap())),
+                    DataValue::regex(RegexWrapper(Regex::from_str(&s).unwrap())),
                     remaining,
                 )
             }
@@ -307,7 +307,7 @@ impl DataValue {
                     remaining = next_chunk;
                     collected.push(val);
                 }
-                (DataValue::List(collected), &remaining[1..])
+                (DataValue::list(collected), &remaining[1..])
             }
             SET_TAG => {
                 let mut collected = BTreeSet::default();
@@ -317,7 +317,7 @@ impl DataValue {
                     remaining = next_chunk;
                     collected.insert(val);
                 }
-                (DataValue::Set(collected), &remaining[1..])
+                (DataValue::set(collected), &remaining[1..])
             }
             VLD_TAG => {
                 let (ts_flipped_bytes, rest) = remaining.split_at(8);
@@ -348,7 +348,7 @@ impl DataValue {
                             let f = BigEndian::read_f32(f_bytes);
                             row.fill(f);
                         }
-                        (DataValue::Vec(Vector::F32(res_arr)), rest)
+                        (DataValue::vec(Vector::F32(res_arr)), rest)
                     }
                     VEC_F64 => {
                         let mut res_arr = ndarray::Array1::zeros(len);
@@ -358,7 +358,7 @@ impl DataValue {
                             let f = BigEndian::read_f64(f_bytes);
                             row.fill(f);
                         }
-                        (DataValue::Vec(Vector::F64(res_arr)), rest)
+                        (DataValue::vec(Vector::F64(res_arr)), rest)
                     }
                     _ => unreachable!(),
                 }

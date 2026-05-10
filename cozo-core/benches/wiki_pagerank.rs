@@ -14,9 +14,9 @@ use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::BufRead;
 use std::path::PathBuf;
-use web_time::Instant;
 use std::{env, io};
 use test::Bencher;
+use web_time::Instant;
 
 use std::sync::LazyLock;
 
@@ -45,27 +45,31 @@ static TEST_DB: LazyLock<DbInstance> = LazyLock::new(|| {
     let mut articles = vec![];
 
     let import_time = Instant::now();
-        for line in io::BufReader::new(file).lines() {
-            let line = line.unwrap();
-            if line.len() < 2 {
-                continue
-            }
-            let mut splits = line.split_whitespace();
-            let fr = splits.next().unwrap();
-            let to = splits.next().unwrap();
-            articles.push(vec![DataValue::from(fr.parse::<i64>().unwrap()), DataValue::from(to.parse::<i64>().unwrap())])
+    for line in io::BufReader::new(file).lines() {
+        let line = line.unwrap();
+        if line.len() < 2 {
+            continue;
         }
-        db.import_relations(BTreeMap::from([("article".to_string(), NamedRows {
-            headers: vec![
-                "fr".to_string(),
-                "to".to_string(),
-            ],
+        let mut splits = line.split_whitespace();
+        let fr = splits.next().unwrap();
+        let to = splits.next().unwrap();
+        articles.push(vec![
+            DataValue::from(fr.parse::<i64>().unwrap()),
+            DataValue::from(to.parse::<i64>().unwrap()),
+        ])
+    }
+    db.import_relations(BTreeMap::from([(
+        "article".to_string(),
+        NamedRows {
+            headers: vec!["fr".to_string(), "to".to_string()],
             rows: articles,
             next: None,
-        })])).unwrap();
-        dbg!(import_time.elapsed());
-        db
-    });
+        },
+    )]))
+    .unwrap();
+    dbg!(import_time.elapsed());
+    db
+});
 
 #[bench]
 fn wikipedia_pagerank(b: &mut Bencher) {

@@ -47,11 +47,13 @@ pub(crate) fn parse_imperative_block(
     Ok(collected)
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Error, Diagnostic)]
 #[error("cannot manipulate permanent relation in imperative script")]
 #[diagnostic(code(parser::manipulate_perm_rel_in_script))]
 struct CannotManipulatePermRel(#[label] SourceSpan);
 
+#[allow(dead_code)]
 #[derive(Debug, Error, Diagnostic)]
 #[error("duplicate marker found")]
 #[diagnostic(code(parser::dup_marker))]

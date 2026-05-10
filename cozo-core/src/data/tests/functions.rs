@@ -7,6 +7,7 @@
  */
 
 use approx::AbsDiffEq;
+use itertools::Itertools;
 use num_traits::FloatConst;
 use regex::Regex;
 use serde_json::json;
@@ -109,14 +110,14 @@ fn test_eq_neq() {
 
 #[test]
 fn test_list() {
-    assert_eq!(op_list(&[]).unwrap(), DataValue::List(vec![]));
+    assert_eq!(op_list(&[]).unwrap(), DataValue::list(vec![]));
     assert_eq!(
         op_list(&[DataValue::from(1)]).unwrap(),
-        DataValue::List(vec![DataValue::from(1)])
+        DataValue::list(vec![DataValue::from(1)])
     );
     assert_eq!(
-        op_list(&[DataValue::from(1), DataValue::List(vec![])]).unwrap(),
-        DataValue::List(vec![DataValue::from(1), DataValue::List(vec![])])
+        op_list(&[DataValue::from(1), DataValue::list(vec![])]).unwrap(),
+        DataValue::list(vec![DataValue::from(1), DataValue::list(vec![])])
     );
 }
 
@@ -125,7 +126,7 @@ fn test_is_in() {
     assert_eq!(
         op_is_in(&[
             DataValue::from(1),
-            DataValue::List(vec![DataValue::from(1), DataValue::from(2)])
+            DataValue::list(vec![DataValue::from(1), DataValue::from(2)])
         ])
         .unwrap(),
         DataValue::from(true)
@@ -133,13 +134,13 @@ fn test_is_in() {
     assert_eq!(
         op_is_in(&[
             DataValue::from(3),
-            DataValue::List(vec![DataValue::from(1), DataValue::from(2)])
+            DataValue::list(vec![DataValue::from(1), DataValue::from(2)])
         ])
         .unwrap(),
         DataValue::from(false)
     );
     assert_eq!(
-        op_is_in(&[DataValue::from(3), DataValue::List(vec![])]).unwrap(),
+        op_is_in(&[DataValue::from(3), DataValue::list(vec![])]).unwrap(),
         DataValue::from(false)
     );
 }
@@ -598,7 +599,7 @@ fn test_bits() {
 #[test]
 fn test_pack_bits() {
     assert_eq!(
-        op_pack_bits(&[DataValue::List(vec![DataValue::from(true)])]).unwrap(),
+        op_pack_bits(&[DataValue::list(vec![DataValue::from(true)])]).unwrap(),
         DataValue::Bytes([0b10000000].into())
     )
 }
@@ -607,11 +608,11 @@ fn test_pack_bits() {
 fn test_unpack_bits() {
     assert_eq!(
         op_unpack_bits(&[DataValue::Bytes([0b10101010].into())]).unwrap(),
-        DataValue::List(
+        DataValue::list(
             [true, false, true, false, true, false, true, false]
                 .into_iter()
                 .map(DataValue::Bool)
-                .collect()
+                .collect_vec()
         )
     )
 }
@@ -625,11 +626,11 @@ fn test_concat() {
 
     assert_eq!(
         op_concat(&[
-            DataValue::List(vec![DataValue::from(true), DataValue::from(false)]),
-            DataValue::List(vec![DataValue::from(true)])
+            DataValue::list(vec![DataValue::from(true), DataValue::from(false)]),
+            DataValue::list(vec![DataValue::from(true)])
         ])
         .unwrap(),
-        DataValue::List(vec![
+        DataValue::list(vec![
             DataValue::from(true),
             DataValue::from(false),
             DataValue::from(true),
@@ -714,7 +715,7 @@ fn test_regex() {
     assert_eq!(
         op_regex_matches(&[
             DataValue::Str("abcdef".into()),
-            DataValue::Regex(RegexWrapper(Regex::new("c.e").unwrap()))
+            DataValue::regex(RegexWrapper(Regex::new("c.e").unwrap()))
         ])
         .unwrap(),
         DataValue::from(true)
@@ -723,7 +724,7 @@ fn test_regex() {
     assert_eq!(
         op_regex_matches(&[
             DataValue::Str("abcdef".into()),
-            DataValue::Regex(RegexWrapper(Regex::new("c.ef$").unwrap()))
+            DataValue::regex(RegexWrapper(Regex::new("c.ef$").unwrap()))
         ])
         .unwrap(),
         DataValue::from(true)
@@ -732,7 +733,7 @@ fn test_regex() {
     assert_eq!(
         op_regex_matches(&[
             DataValue::Str("abcdef".into()),
-            DataValue::Regex(RegexWrapper(Regex::new("c.e$").unwrap()))
+            DataValue::regex(RegexWrapper(Regex::new("c.e$").unwrap()))
         ])
         .unwrap(),
         DataValue::from(false)
@@ -741,7 +742,7 @@ fn test_regex() {
     assert_eq!(
         op_regex_replace(&[
             DataValue::Str("abcdef".into()),
-            DataValue::Regex(RegexWrapper(Regex::new("[be]").unwrap())),
+            DataValue::regex(RegexWrapper(Regex::new("[be]").unwrap())),
             DataValue::Str("x".into())
         ])
         .unwrap(),
@@ -751,7 +752,7 @@ fn test_regex() {
     assert_eq!(
         op_regex_replace_all(&[
             DataValue::Str("abcdef".into()),
-            DataValue::Regex(RegexWrapper(Regex::new("[be]").unwrap())),
+            DataValue::regex(RegexWrapper(Regex::new("[be]").unwrap())),
             DataValue::Str("x".into())
         ])
         .unwrap(),
@@ -760,10 +761,10 @@ fn test_regex() {
     assert_eq!(
         op_regex_extract(&[
             DataValue::Str("abCDefGH".into()),
-            DataValue::Regex(RegexWrapper(Regex::new("[xayef]|(GH)").unwrap()))
+            DataValue::regex(RegexWrapper(Regex::new("[xayef]|(GH)").unwrap()))
         ])
         .unwrap(),
-        DataValue::List(vec![
+        DataValue::list(vec![
             DataValue::Str("a".into()),
             DataValue::Str("e".into()),
             DataValue::Str("f".into()),
@@ -773,7 +774,7 @@ fn test_regex() {
     assert_eq!(
         op_regex_extract_first(&[
             DataValue::Str("abCDefGH".into()),
-            DataValue::Regex(RegexWrapper(Regex::new("[xayef]|(GH)").unwrap()))
+            DataValue::regex(RegexWrapper(Regex::new("[xayef]|(GH)").unwrap()))
         ])
         .unwrap(),
         DataValue::Str("a".into()),
@@ -781,16 +782,16 @@ fn test_regex() {
     assert_eq!(
         op_regex_extract(&[
             DataValue::Str("abCDefGH".into()),
-            DataValue::Regex(RegexWrapper(Regex::new("xyz").unwrap()))
+            DataValue::regex(RegexWrapper(Regex::new("xyz").unwrap()))
         ])
         .unwrap(),
-        DataValue::List(vec![])
+        DataValue::list(vec![])
     );
 
     assert_eq!(
         op_regex_extract_first(&[
             DataValue::Str("abCDefGH".into()),
-            DataValue::Regex(RegexWrapper(Regex::new("xyz").unwrap()))
+            DataValue::regex(RegexWrapper(Regex::new("xyz").unwrap()))
         ])
         .unwrap(),
         DataValue::Null
@@ -844,7 +845,7 @@ fn test_predicates() {
         DataValue::from(false)
     );
     assert_eq!(
-        op_is_list(&[DataValue::List(vec![])]).unwrap(),
+        op_is_list(&[DataValue::list(vec![])]).unwrap(),
         DataValue::from(true)
     );
     assert_eq!(
@@ -909,11 +910,11 @@ fn test_predicates() {
 fn test_prepend_append() {
     assert_eq!(
         op_prepend(&[
-            DataValue::List(vec![DataValue::from(1), DataValue::from(2)]),
+            DataValue::list(vec![DataValue::from(1), DataValue::from(2)]),
             DataValue::Null,
         ])
         .unwrap(),
-        DataValue::List(vec![
+        DataValue::list(vec![
             DataValue::Null,
             DataValue::from(1),
             DataValue::from(2),
@@ -921,11 +922,11 @@ fn test_prepend_append() {
     );
     assert_eq!(
         op_append(&[
-            DataValue::List(vec![DataValue::from(1), DataValue::from(2)]),
+            DataValue::list(vec![DataValue::from(1), DataValue::from(2)]),
             DataValue::Null,
         ])
         .unwrap(),
-        DataValue::List(vec![
+        DataValue::list(vec![
             DataValue::from(1),
             DataValue::from(2),
             DataValue::Null,
@@ -940,7 +941,7 @@ fn test_length() {
         DataValue::from(3)
     );
     assert_eq!(
-        op_length(&[DataValue::List(vec![])]).unwrap(),
+        op_length(&[DataValue::list(vec![])]).unwrap(),
         DataValue::from(0)
     );
     assert_eq!(
@@ -961,14 +962,14 @@ fn test_unicode_normalize() {
 #[test]
 fn test_sort_reverse() {
     assert_eq!(
-        op_sorted(&[DataValue::List(vec![
+        op_sorted(&[DataValue::list(vec![
             DataValue::from(2.0),
             DataValue::from(1),
             DataValue::from(2),
             DataValue::Null,
         ])])
         .unwrap(),
-        DataValue::List(vec![
+        DataValue::list(vec![
             DataValue::Null,
             DataValue::from(1),
             DataValue::from(2),
@@ -976,14 +977,14 @@ fn test_sort_reverse() {
         ])
     );
     assert_eq!(
-        op_reverse(&[DataValue::List(vec![
+        op_reverse(&[DataValue::list(vec![
             DataValue::from(2.0),
             DataValue::from(1),
             DataValue::from(2),
             DataValue::Null,
         ])])
         .unwrap(),
-        DataValue::List(vec![
+        DataValue::list(vec![
             DataValue::Null,
             DataValue::from(2),
             DataValue::from(1),
@@ -1043,15 +1044,15 @@ fn test_deg_rad() {
 #[test]
 fn test_first_last() {
     assert_eq!(
-        op_first(&[DataValue::List(vec![])]).unwrap(),
+        op_first(&[DataValue::list(vec![])]).unwrap(),
         DataValue::Null,
     );
     assert_eq!(
-        op_last(&[DataValue::List(vec![])]).unwrap(),
+        op_last(&[DataValue::list(vec![])]).unwrap(),
         DataValue::Null,
     );
     assert_eq!(
-        op_first(&[DataValue::List(vec![
+        op_first(&[DataValue::list(vec![
             DataValue::from(1),
             DataValue::from(2),
         ])])
@@ -1059,7 +1060,7 @@ fn test_first_last() {
         DataValue::from(1),
     );
     assert_eq!(
-        op_last(&[DataValue::List(vec![
+        op_last(&[DataValue::list(vec![
             DataValue::from(1),
             DataValue::from(2),
         ])])
@@ -1072,7 +1073,7 @@ fn test_first_last() {
 fn test_chunks() {
     assert_eq!(
         op_chunks(&[
-            DataValue::List(vec![
+            DataValue::list(vec![
                 DataValue::from(1),
                 DataValue::from(2),
                 DataValue::from(3),
@@ -1082,15 +1083,15 @@ fn test_chunks() {
             DataValue::from(2),
         ])
         .unwrap(),
-        DataValue::List(vec![
-            DataValue::List(vec![DataValue::from(1), DataValue::from(2)]),
-            DataValue::List(vec![DataValue::from(3), DataValue::from(4)]),
-            DataValue::List(vec![DataValue::from(5)]),
+        DataValue::list(vec![
+            DataValue::list(vec![DataValue::from(1), DataValue::from(2)]),
+            DataValue::list(vec![DataValue::from(3), DataValue::from(4)]),
+            DataValue::list(vec![DataValue::from(5)]),
         ])
     );
     assert_eq!(
         op_chunks_exact(&[
-            DataValue::List(vec![
+            DataValue::list(vec![
                 DataValue::from(1),
                 DataValue::from(2),
                 DataValue::from(3),
@@ -1100,14 +1101,14 @@ fn test_chunks() {
             DataValue::from(2),
         ])
         .unwrap(),
-        DataValue::List(vec![
-            DataValue::List(vec![DataValue::from(1), DataValue::from(2)]),
-            DataValue::List(vec![DataValue::from(3), DataValue::from(4)]),
+        DataValue::list(vec![
+            DataValue::list(vec![DataValue::from(1), DataValue::from(2)]),
+            DataValue::list(vec![DataValue::from(3), DataValue::from(4)]),
         ])
     );
     assert_eq!(
         op_windows(&[
-            DataValue::List(vec![
+            DataValue::list(vec![
                 DataValue::from(1),
                 DataValue::from(2),
                 DataValue::from(3),
@@ -1117,18 +1118,18 @@ fn test_chunks() {
             DataValue::from(3),
         ])
         .unwrap(),
-        DataValue::List(vec![
-            DataValue::List(vec![
+        DataValue::list(vec![
+            DataValue::list(vec![
                 DataValue::from(1),
                 DataValue::from(2),
                 DataValue::from(3),
             ]),
-            DataValue::List(vec![
+            DataValue::list(vec![
                 DataValue::from(2),
                 DataValue::from(3),
                 DataValue::from(4),
             ]),
-            DataValue::List(vec![
+            DataValue::list(vec![
                 DataValue::from(3),
                 DataValue::from(4),
                 DataValue::from(5),
@@ -1139,10 +1140,10 @@ fn test_chunks() {
 
 #[test]
 fn test_get() {
-    assert!(op_get(&[DataValue::List(vec![]), DataValue::from(0)]).is_err());
+    assert!(op_get(&[DataValue::list(vec![]), DataValue::from(0)]).is_err());
     assert_eq!(
         op_get(&[
-            DataValue::List(vec![
+            DataValue::list(vec![
                 DataValue::from(1),
                 DataValue::from(2),
                 DataValue::from(3),
@@ -1153,12 +1154,12 @@ fn test_get() {
         DataValue::from(2)
     );
     assert_eq!(
-        op_maybe_get(&[DataValue::List(vec![]), DataValue::from(0)]).unwrap(),
+        op_maybe_get(&[DataValue::list(vec![]), DataValue::from(0)]).unwrap(),
         DataValue::Null
     );
     assert_eq!(
         op_maybe_get(&[
-            DataValue::List(vec![
+            DataValue::list(vec![
                 DataValue::from(1),
                 DataValue::from(2),
                 DataValue::from(3),
@@ -1173,7 +1174,7 @@ fn test_get() {
 #[test]
 fn test_slice() {
     assert!(op_slice(&[
-        DataValue::List(vec![
+        DataValue::list(vec![
             DataValue::from(1),
             DataValue::from(2),
             DataValue::from(3),
@@ -1184,7 +1185,7 @@ fn test_slice() {
     .is_err());
 
     assert!(op_slice(&[
-        DataValue::List(vec![
+        DataValue::list(vec![
             DataValue::from(1),
             DataValue::from(2),
             DataValue::from(3),
@@ -1196,7 +1197,7 @@ fn test_slice() {
 
     assert_eq!(
         op_slice(&[
-            DataValue::List(vec![
+            DataValue::list(vec![
                 DataValue::from(1),
                 DataValue::from(2),
                 DataValue::from(3),
@@ -1205,7 +1206,7 @@ fn test_slice() {
             DataValue::from(-1)
         ])
         .unwrap(),
-        DataValue::List(vec![DataValue::from(2)])
+        DataValue::list(vec![DataValue::from(2)])
     );
 }
 
@@ -1266,11 +1267,11 @@ fn test_to_unity() {
         DataValue::from(0)
     );
     assert_eq!(
-        op_to_unity(&[DataValue::List(vec![])]).unwrap(),
+        op_to_unity(&[DataValue::list(vec![])]).unwrap(),
         DataValue::from(0)
     );
     assert_eq!(
-        op_to_unity(&[DataValue::List(vec![DataValue::Null])]).unwrap(),
+        op_to_unity(&[DataValue::list(vec![DataValue::Null])]).unwrap(),
         DataValue::from(1)
     );
 }
@@ -1342,11 +1343,11 @@ fn test_rand() {
     assert!(n >= 100);
     assert!(n <= 200);
     assert_eq!(
-        op_rand_choose(&[DataValue::List(vec![])]).unwrap(),
+        op_rand_choose(&[DataValue::list(vec![])]).unwrap(),
         DataValue::Null
     );
     assert_eq!(
-        op_rand_choose(&[DataValue::List(vec![DataValue::from(123)])]).unwrap(),
+        op_rand_choose(&[DataValue::list(vec![DataValue::from(123)])]).unwrap(),
         DataValue::from(123)
     );
 }
@@ -1355,40 +1356,45 @@ fn test_rand() {
 fn test_set_ops() {
     assert_eq!(
         op_union(&[
-            DataValue::List([1, 2, 3].into_iter().map(DataValue::from).collect()),
-            DataValue::List([2, 3, 4].into_iter().map(DataValue::from).collect()),
-            DataValue::List([3, 4, 5].into_iter().map(DataValue::from).collect())
+            DataValue::list([1, 2, 3].into_iter().map(DataValue::from).collect_vec()),
+            DataValue::list([2, 3, 4].into_iter().map(DataValue::from).collect_vec()),
+            DataValue::list([3, 4, 5].into_iter().map(DataValue::from).collect_vec())
         ])
         .unwrap(),
-        DataValue::List([1, 2, 3, 4, 5].into_iter().map(DataValue::from).collect())
+        DataValue::list(
+            [1, 2, 3, 4, 5]
+                .into_iter()
+                .map(DataValue::from)
+                .collect_vec()
+        )
     );
     assert_eq!(
         op_intersection(&[
-            DataValue::List(
+            DataValue::list(
                 [1, 2, 3, 4, 5, 6]
                     .into_iter()
                     .map(DataValue::from)
-                    .collect(),
+                    .collect_vec(),
             ),
-            DataValue::List([2, 3, 4].into_iter().map(DataValue::from).collect()),
-            DataValue::List([3, 4, 5].into_iter().map(DataValue::from).collect())
+            DataValue::list([2, 3, 4].into_iter().map(DataValue::from).collect_vec()),
+            DataValue::list([3, 4, 5].into_iter().map(DataValue::from).collect_vec())
         ])
         .unwrap(),
-        DataValue::List([3, 4].into_iter().map(DataValue::from).collect())
+        DataValue::list([3, 4].into_iter().map(DataValue::from).collect_vec())
     );
     assert_eq!(
         op_difference(&[
-            DataValue::List(
+            DataValue::list(
                 [1, 2, 3, 4, 5, 6]
                     .into_iter()
                     .map(DataValue::from)
-                    .collect(),
+                    .collect_vec(),
             ),
-            DataValue::List([2, 3, 4].into_iter().map(DataValue::from).collect()),
-            DataValue::List([3, 4, 5].into_iter().map(DataValue::from).collect())
+            DataValue::list([2, 3, 4].into_iter().map(DataValue::from).collect_vec()),
+            DataValue::list([3, 4, 5].into_iter().map(DataValue::from).collect_vec())
         ])
         .unwrap(),
-        DataValue::List([1, 6].into_iter().map(DataValue::from).collect())
+        DataValue::list([1, 6].into_iter().map(DataValue::from).collect_vec())
     );
 }
 
@@ -1445,11 +1451,11 @@ fn test_to_bool() {
         DataValue::from(true)
     );
     assert_eq!(
-        op_to_bool(&[DataValue::List(vec![])]).unwrap(),
+        op_to_bool(&[DataValue::list(vec![])]).unwrap(),
         DataValue::from(false)
     );
     assert_eq!(
-        op_to_bool(&[DataValue::List(vec![DataValue::from(0)])]).unwrap(),
+        op_to_bool(&[DataValue::list(vec![DataValue::from(0)])]).unwrap(),
         DataValue::from(true)
     );
 }

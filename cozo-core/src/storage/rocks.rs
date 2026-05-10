@@ -429,7 +429,7 @@ mod tests {
             crate::NamedRows {
                 headers: vec!["k".to_string(), "v".to_string()],
                 rows: (0..100)
-                    .map(|i| vec![DataValue::from(i), DataValue::from(i * 2)])
+                    .map(|i| vec![DataValue::from(i), DataValue::from(i * 2)].into())
                     .collect(),
                 next: None,
             },
@@ -463,12 +463,14 @@ mod tests {
                         DataValue::from(1),
                         DataValue::Validity(Validity::from((0, true))),
                         DataValue::from(100),
-                    ],
+                    ]
+                    .into(),
                     vec![
                         DataValue::from(1),
                         DataValue::Validity(Validity::from((1, true))),
                         DataValue::from(200),
-                    ],
+                    ]
+                    .into(),
                 ],
                 next: None,
             },
@@ -504,7 +506,7 @@ mod tests {
             crate::NamedRows {
                 headers: vec!["k".to_string(), "v".to_string()],
                 rows: (0..10)
-                    .map(|i| vec![DataValue::from(i), DataValue::from(i)])
+                    .map(|i| vec![DataValue::from(i), DataValue::from(i)].into())
                     .collect(),
                 next: None,
             },

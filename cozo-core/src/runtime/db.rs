@@ -78,6 +78,7 @@ impl Drop for RunningQueryCleanup {
     }
 }
 
+#[allow(dead_code)]
 #[derive(serde_derive::Serialize, serde_derive::Deserialize)]
 pub struct DbManifest {
     pub storage_version: u64,
@@ -115,6 +116,7 @@ impl<S> Debug for Db<S> {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Diagnostic, Error)]
 #[error("Initialization of database failed")]
 #[diagnostic(code(db::init))]
@@ -147,10 +149,10 @@ impl IntoIterator for NamedRows {
 
 impl NamedRows {
     /// create a named rows with the given headers and rows
-    pub fn new(headers: Vec<String>, rows: Vec<Tuple>) -> Self {
+    pub fn new<R: Into<Tuple>>(headers: Vec<String>, rows: Vec<R>) -> Self {
         Self {
             headers,
-            rows,
+            rows: rows.into_iter().map(Into::into).collect(),
             next: None,
         }
     }
@@ -218,11 +220,11 @@ impl NamedRows {
             .ok_or_else(|| miette!("'rows' field must be an array"))?;
         let rows = rows
             .iter()
-            .map(|row| -> Result<Vec<DataValue>> {
+            .map(|row| -> Result<Tuple> {
                 let row = row
                     .as_array()
                     .ok_or_else(|| miette!("'rows' field must be an array of arrays"))?;
-                Ok(row.iter().map(DataValue::from).collect_vec())
+                Ok(row.iter().map(DataValue::from).collect())
             })
             .try_collect()?;
         Ok(Self {
@@ -237,7 +239,12 @@ impl NamedRows {
     pub fn into_payload(self, relation: &str, op: &str) -> Payload {
         let cols_str = self.headers.join(", ");
         let query = format!("?[{cols_str}] <- $data :{op} {relation} {{ {cols_str} }}");
-        let data = DataValue::List(self.rows.into_iter().map(|r| DataValue::List(r)).collect());
+        let data = DataValue::list(
+            self.rows
+                .into_iter()
+                .map(DataValue::list)
+                .collect::<Vec<_>>(),
+        );
         (query, [("data".to_string(), data)].into())
     }
 }
@@ -504,6 +511,7 @@ impl<'s, S: Storage<'s>> Db<S> {
         #[derive(Debug, Diagnostic, Error)]
         #[error("cannot import data for relation '{0}': {1}")]
         #[diagnostic(code(import::bad_data))]
+        #[allow(dead_code)]
         struct BadDataForRelation(String, JsonValue);
 
         let rel_names = data.keys().map(SmartString::from).collect_vec();
@@ -596,7 +604,7 @@ impl<'s, S: Storage<'s>> Db<S> {
                 let k_store = handle.encode_key_for_store(&keys, Default::default())?;
                 if has_indices {
                     if let Some(existing) = tx.store_tx.get(&k_store, false)? {
-                        let mut old = keys.clone();
+                        let mut old = keys.clone().into();
                         extend_tuple_from_v(&mut old, &existing);
                         if is_delete || old != row {
                             for (idx_rel, extractor) in handle.indices.values() {

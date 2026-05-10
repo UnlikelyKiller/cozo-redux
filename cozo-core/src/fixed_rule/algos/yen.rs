@@ -67,7 +67,7 @@ impl FixedRule for KShortestPathYen {
                             indices[start as usize].clone(),
                             indices[*goal as usize].clone(),
                             DataValue::from(cost as f64),
-                            DataValue::List(
+                            DataValue::list(
                                 path.into_iter()
                                     .map(|u| indices[u as usize].clone())
                                     .collect_vec(),
@@ -102,7 +102,7 @@ impl FixedRule for KShortestPathYen {
                         indices[start as usize].clone(),
                         indices[goal as usize].clone(),
                         DataValue::from(cost as f64),
-                        DataValue::List(
+                        DataValue::list(
                             path.into_iter()
                                 .map(|u| indices[u as usize].clone())
                                 .collect_vec(),

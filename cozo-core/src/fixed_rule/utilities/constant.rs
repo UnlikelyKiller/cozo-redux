@@ -15,6 +15,7 @@ use thiserror::Error;
 use crate::data::expr::Expr;
 use crate::data::program::WrongFixedRuleOptionError;
 use crate::data::symb::Symbol;
+use crate::data::tuple::Tuple;
 use crate::data::value::DataValue;
 use crate::fixed_rule::{FixedRule, FixedRulePayload};
 use crate::parse::SourceSpan;
@@ -33,7 +34,7 @@ impl FixedRule for Constant {
         let data = payload.expr_option("data", None).unwrap();
         let data = data.get_const().unwrap().get_slice().unwrap();
         for row in data {
-            let tuple = row.get_slice().unwrap().into();
+            let tuple: Tuple = row.get_slice().unwrap().iter().cloned().collect();
             out.put(tuple)
         }
         Ok(())
@@ -96,9 +97,10 @@ impl FixedRule for Constant {
 
         let mut tuples = vec![];
         let mut last_len = None;
-        for row in data {
+        for row in *data {
             match row {
                 DataValue::List(tuple) => {
+                    let tuple = *tuple;
                     if let Some(l) = &last_len {
                         #[derive(Error, Debug, Diagnostic)]
                         #[error("Constant head must have the same arity as the data given")]
@@ -112,11 +114,11 @@ impl FixedRule for Constant {
 
                         ensure!(
                             *l == tuple.len(),
-                            ConstRuleRowArityMismatch(*l, tuple, span)
+                            ConstRuleRowArityMismatch(*l, tuple.clone(), span)
                         );
                     };
                     last_len = Some(tuple.len());
-                    tuples.push(DataValue::List(tuple));
+                    tuples.push(DataValue::list(tuple));
                 }
                 row => {
                     #[derive(Error, Debug, Diagnostic)]
@@ -135,7 +137,7 @@ impl FixedRule for Constant {
         options.insert(
             SmartString::from("data"),
             Expr::Const {
-                val: DataValue::List(tuples),
+                val: DataValue::list(tuples),
                 span: Default::default(),
             },
         );

@@ -107,7 +107,7 @@ impl<'a, 'b> FixedRuleInputRelation<'a, 'b> {
                 let store = self.stores.get(name).ok_or_else(|| {
                     RuleNotFoundError(name.symbol().to_string(), name.symbol().span)
                 })?;
-                let t = vec![prefix.clone()];
+                let t = [prefix.clone()];
                 Box::new(store.prefix_iter(&t).map(|t| Ok(t.into_tuple())))
             }
             MagicFixedRuleRuleArg::Stored { name, valid_at, .. } => {
@@ -862,6 +862,7 @@ struct BadEdgeWeightError(DataValue, #[label] SourceSpan);
 #[diagnostic(code(algo::rule_not_found))]
 struct RuleNotFoundError(String, #[label] SourceSpan);
 
+#[allow(dead_code)]
 #[derive(Error, Diagnostic, Debug)]
 #[error("Invalid reverse scanning of triples")]
 #[diagnostic(code(algo::invalid_reverse_triple_scan))]

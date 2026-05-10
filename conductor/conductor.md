@@ -11,6 +11,9 @@ Master registry for development tracks and architectural upgrades.
 | **003** | `[x]` | Platform Modernization (`instant` -> `web-time`) | Antigravity |
 | **004** | `[x]` | Serialization Overhaul (`bincode` -> `postcard`) | Antigravity |
 | **005** | `[x]` | Security Infrastructure (Semgrep, Gitleaks, Pre-commit) | Antigravity |
+| **006** | `In Progress` | Memory Efficiency - DataValue & Tuple Optimization | Antigravity |
+| **007** | `Planning` | Query Execution - Pipeline Parallelism | Antigravity |
+| **008** | `Planning` | Storage Layer - Architecture & Hygiene | Antigravity |
 
 ## Completed Tracks
 

@@ -10,11 +10,11 @@ use crate::fts::ast::{FtsExpr, FtsLiteral, FtsNear};
 use crate::parse::expr::parse_string;
 use crate::parse::{CozoScriptParser, Pair, Rule};
 use itertools::Itertools;
-use std::sync::LazyLock;
 use miette::{IntoDiagnostic, Result};
 use pest::pratt_parser::{Op, PrattParser};
 use pest::Parser;
 use smartstring::SmartString;
+use std::sync::LazyLock;
 
 pub(crate) fn parse_fts_query(q: &str) -> Result<FtsExpr> {
     let mut pairs = CozoScriptParser::parse(Rule::fts_doc, q).into_diagnostic()?;

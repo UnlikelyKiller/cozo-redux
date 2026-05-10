@@ -13,24 +13,24 @@ use web_time::Instant;
 
 use approx::AbsDiffEq;
 use env_logger::Env;
-use std::sync::LazyLock;
 use serde_json::json;
+use std::sync::LazyLock;
 
 use cozo::DbInstance;
 
 static TEST_DB: LazyLock<DbInstance> = LazyLock::new(|| {
-        env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
-        let creation = Instant::now();
-        let path = "_test_air_routes";
-        _ = std::fs::remove_file(path);
-        _ = std::fs::remove_dir_all(path);
-        let db_kind = env::var("COZO_TEST_DB_ENGINE").unwrap_or("mem".to_string());
-        println!("Using {} engine", db_kind);
-        let db = DbInstance::new(&db_kind, path, Default::default()).unwrap();
-        dbg!(creation.elapsed());
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+    let creation = Instant::now();
+    let path = "_test_air_routes";
+    _ = std::fs::remove_file(path);
+    _ = std::fs::remove_dir_all(path);
+    let db_kind = env::var("COZO_TEST_DB_ENGINE").unwrap_or("mem".to_string());
+    println!("Using {} engine", db_kind);
+    let db = DbInstance::new(&db_kind, path, Default::default()).unwrap();
+    dbg!(creation.elapsed());
 
-        let init = Instant::now();
-        db.run_default(r##"
+    let init = Instant::now();
+    db.run_default(r##"
             res[idx, label, typ, code, icao, desc, region, runways, longest, elev, country, city, lat, lon] <~
                 CsvReader(types: ['Int', 'Any', 'Any', 'Any', 'Any', 'Any', 'Any', 'Int?', 'Float?', 'Float?', 'Any', 'Any', 'Float?', 'Float?'],
                           url: 'file://./tests/air-routes-latest-nodes.csv',
@@ -56,8 +56,8 @@ static TEST_DB: LazyLock<DbInstance> = LazyLock::new(|| {
             }
         "##).unwrap();
 
-        db.run_default(
-            r##"
+    db.run_default(
+        r##"
             res[idx, label, typ, code, icao, desc] <~
                 CsvReader(types: ['Int', 'Any', 'Any', 'Any', 'Any', 'Any'],
                           url: 'file://./tests/air-routes-latest-nodes.csv',
@@ -72,11 +72,11 @@ static TEST_DB: LazyLock<DbInstance> = LazyLock::new(|| {
                 desc: String
             }
         "##,
-        )
-        .unwrap();
+    )
+    .unwrap();
 
-        db.run_default(
-            r##"
+    db.run_default(
+        r##"
             res[idx, label, typ, code, icao, desc] <~
                 CsvReader(types: ['Int', 'Any', 'Any', 'Any', 'Any', 'Any'],
                           url: 'file://./tests/air-routes-latest-nodes.csv',
@@ -91,11 +91,11 @@ static TEST_DB: LazyLock<DbInstance> = LazyLock::new(|| {
                 desc: String
             }
         "##,
-        )
-        .unwrap();
+    )
+    .unwrap();
 
-        db.run_default(
-            r##"
+    db.run_default(
+        r##"
             res[idx, label, typ, code] <~
                 CsvReader(types: ['Int', 'Any', 'Any', 'Any'],
                           url: 'file://./tests/air-routes-latest-nodes.csv',
@@ -105,11 +105,11 @@ static TEST_DB: LazyLock<DbInstance> = LazyLock::new(|| {
 
             :replace idx2code { idx: Int => code: String }
         "##,
-        )
-        .unwrap();
+    )
+    .unwrap();
 
-        db.run_default(
-            r##"
+    db.run_default(
+        r##"
             res[] <~
                 CsvReader(types: ['Int', 'Int', 'Int', 'String', 'Float?'],
                           url: 'file://./tests/air-routes-latest-edges.csv',
@@ -122,11 +122,11 @@ static TEST_DB: LazyLock<DbInstance> = LazyLock::new(|| {
 
             :replace route { fr: String, to: String => dist: Float }
         "##,
-        )
-        .unwrap();
+    )
+    .unwrap();
 
-        db.run_default(
-            r##"
+    db.run_default(
+        r##"
             res[] <~
                 CsvReader(types: ['Int', 'Int', 'Int', 'String'],
                           url: 'file://./tests/air-routes-latest-edges.csv',
@@ -140,14 +140,14 @@ static TEST_DB: LazyLock<DbInstance> = LazyLock::new(|| {
 
             :replace contain { entity: String, contained: String }
         "##,
-        )
-        .unwrap();
+    )
+    .unwrap();
 
-        db.run_default("::remove idx2code").unwrap();
+    db.run_default("::remove idx2code").unwrap();
 
-        dbg!(init.elapsed());
-        db
-    });
+    dbg!(init.elapsed());
+    db
+});
 
 #[test]
 fn dfs() {

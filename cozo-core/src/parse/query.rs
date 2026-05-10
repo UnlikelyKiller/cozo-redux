@@ -67,6 +67,7 @@ struct MultipleRuleDefinitionError(String, Vec<SourceSpan>);
 #[diagnostic(code(parser::multiple_out_assert))]
 struct DuplicateQueryAssertion(#[label] SourceSpan);
 
+#[allow(dead_code)]
 #[derive(Debug, Error, Diagnostic)]
 #[error("Multiple query yields defined")]
 #[diagnostic(code(parser::multiple_yields))]
@@ -492,17 +493,14 @@ pub(crate) fn parse_query(
 
     let empty_mutation_head = match &prog.out_opts.store_relation {
         None => false,
-        Some((handle, _, _)) => {
-            if handle.key_bindings.is_empty() {
-                if handle.dep_bindings.is_empty() {
-                    true
-                } else {
-                    bail!(RelationHasNoKeys(handle.name.to_string(), handle.span));
-                }
+        Some((handle, _, _)) if handle.key_bindings.is_empty() => {
+            if handle.dep_bindings.is_empty() {
+                true
             } else {
-                false
+                bail!(RelationHasNoKeys(handle.name.to_string(), handle.span));
             }
         }
+        Some(_) => false,
     };
 
     if empty_mutation_head {
@@ -1061,7 +1059,7 @@ fn make_empty_const_rule(prog: &mut InputProgram, bindings: &[Symbol]) {
     options.insert(
         SmartString::from("data"),
         Expr::Const {
-            val: DataValue::List(vec![]),
+            val: DataValue::list(vec![]),
             span: Default::default(),
         },
     );

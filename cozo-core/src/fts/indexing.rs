@@ -100,7 +100,7 @@ impl<'a> SessionTx<'a> {
                 })
                 .collect_vec();
             results.push(LiteralStats {
-                key: key_tuple[1..].to_vec(),
+                key: key_tuple[1..].to_vec().into(),
                 position_info,
                 // doc_len: total_length as u32,
             });
@@ -331,9 +331,9 @@ impl<'a> SessionTx<'a> {
         ];
         for (text, (from, to, position)) in collector {
             key[0] = DataValue::Str(text);
-            val[0] = DataValue::List(from);
-            val[1] = DataValue::List(to);
-            val[2] = DataValue::List(position);
+            val[0] = DataValue::list(from);
+            val[1] = DataValue::list(to);
+            val[2] = DataValue::list(position);
             let key_bytes = idx_handle.encode_key_for_store(&key, Default::default())?;
             let val_bytes = idx_handle.encode_val_only_for_store(&val, Default::default())?;
             self.store_tx.put(&key_bytes, &val_bytes)?;

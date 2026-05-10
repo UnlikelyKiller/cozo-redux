@@ -199,7 +199,7 @@ impl NullableColType {
 
         Ok(match &self.coltype {
             ColType::Any => match data {
-                DataValue::Set(s) => DataValue::List(s.into_iter().collect_vec()),
+                DataValue::Set(s) => DataValue::list(s.into_iter().collect_vec()),
                 DataValue::Bot => {
                     #[derive(Debug, Error, Diagnostic)]
                     #[error("data coercion failed: internal type Bot not allowed")]
@@ -240,10 +240,10 @@ impl NullableColType {
                     if let Some(expected) = len {
                         ensure!(*expected == l.len(), BadListLength(self.clone(), l.len()))
                     }
-                    DataValue::List(
+                    DataValue::list(
                         l.into_iter()
                             .map(|el| eltype.coerce(el, cur_vld))
-                            .try_collect()?,
+                            .collect::<Result<Vec<_>>>()?,
                     )
                 } else {
                     bail!(make_err())
@@ -263,7 +263,7 @@ impl NullableColType {
                                 let f = el.get_float().ok_or_else(make_err)? as f32;
                                 row.fill(f);
                             }
-                            DataValue::Vec(Vector::F32(res_arr))
+                            DataValue::vec(Vector::F32(res_arr))
                         }
                         VecElementType::F64 => {
                             let mut res_arr = ndarray::Array1::zeros(*len);
@@ -273,7 +273,7 @@ impl NullableColType {
                                 let f = el.get_float().ok_or_else(make_err)?;
                                 row.fill(f);
                             }
-                            DataValue::Vec(Vector::F64(res_arr))
+                            DataValue::vec(Vector::F64(res_arr))
                         }
                     }
                 }
@@ -298,7 +298,7 @@ impl NullableColType {
                                     bytes.as_ptr() as *const f32,
                                 )
                             };
-                            DataValue::Vec(Vector::F32(arr.to_owned()))
+                            DataValue::vec(Vector::F32(arr.to_owned()))
                         }
                         VecElementType::F64 => {
                             let f64_count = bytes.len() / mem::size_of::<f64>();
@@ -311,7 +311,7 @@ impl NullableColType {
                                     bytes.as_ptr() as *const f64,
                                 )
                             };
-                            DataValue::Vec(Vector::F64(arr.to_owned()))
+                            DataValue::vec(Vector::F64(arr.to_owned()))
                         }
                     }
                 }
@@ -320,11 +320,11 @@ impl NullableColType {
             ColType::Tuple(typ) => {
                 if let DataValue::List(l) = data {
                     ensure!(typ.len() == l.len(), BadListLength(self.clone(), l.len()));
-                    DataValue::List(
+                    DataValue::list(
                         l.into_iter()
                             .zip(typ.iter())
                             .map(|(el, t)| t.coerce(el, cur_vld))
-                            .try_collect()?,
+                            .collect::<Result<Vec<_>>>()?,
                     )
                 } else {
                     bail!(make_err())
@@ -374,7 +374,7 @@ impl NullableColType {
                             let o_is_assert = l[1].get_bool();
                             if let (Some(ts), Some(is_assert)) = (o_ts, o_is_assert) {
                                 if ts == i64::MAX || ts == i64::MIN {
-                                    bail!(InvalidValidity(DataValue::List(l)))
+                                    bail!(InvalidValidity(DataValue::list(l)))
                                 }
                                 return Ok(DataValue::Validity(Validity {
                                     timestamp: ValidityTs(Reverse(ts)),
@@ -382,12 +382,12 @@ impl NullableColType {
                                 }));
                             }
                         }
-                        bail!(InvalidValidity(DataValue::List(l)))
+                        bail!(InvalidValidity(DataValue::list(l)))
                     }
                     v => bail!(InvalidValidity(v)),
                 }
             }
-            ColType::Json => DataValue::Json(JsonData(match data {
+            ColType::Json => DataValue::json(JsonData(match data {
                 DataValue::Null => {
                     json!(null)
                 }
@@ -416,21 +416,21 @@ impl NullableColType {
                 }
                 DataValue::List(l) => {
                     let mut arr = Vec::with_capacity(l.len());
-                    for el in l {
-                        arr.push(self.coerce(el, cur_vld)?);
+                    for el in l.iter() {
+                        arr.push(self.coerce(el.clone(), cur_vld)?);
                     }
                     arr.into()
                 }
                 DataValue::Set(l) => {
                     let mut arr = Vec::with_capacity(l.len());
-                    for el in l {
-                        arr.push(self.coerce(el, cur_vld)?);
+                    for el in l.iter() {
+                        arr.push(self.coerce(el.clone(), cur_vld)?);
                     }
                     arr.into()
                 }
                 DataValue::Vec(v) => {
                     let mut arr = Vec::with_capacity(v.len());
-                    match v {
+                    match *v {
                         Vector::F32(a) => {
                             for el in a {
                                 arr.push(json!(el));

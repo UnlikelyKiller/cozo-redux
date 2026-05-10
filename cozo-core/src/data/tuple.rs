@@ -8,13 +8,14 @@
 
 use crate::data::functions::TERMINAL_VALIDITY;
 use miette::Result;
+use smallvec::SmallVec;
 use std::cmp::Reverse;
 
 use crate::data::memcmp::MemCmpEncoder;
 use crate::data::value::{DataValue, Validity, ValidityTs};
 use crate::runtime::relation::RelationId;
 
-pub type Tuple = Vec<DataValue>;
+pub type Tuple = SmallVec<[DataValue; 6]>;
 
 pub(crate) type TupleIter<'a> = Box<dyn Iterator<Item = Result<Tuple>> + 'a>;
 
@@ -40,7 +41,7 @@ where
 
 pub fn decode_tuple_from_key(key: &[u8], size_hint: usize) -> Tuple {
     let mut remaining = &key[ENCODED_KEY_MIN_LEN..];
-    let mut ret = Vec::with_capacity(size_hint);
+    let mut ret = Tuple::with_capacity(size_hint);
     while !remaining.is_empty() {
         let (val, next) = DataValue::decode_from_key(remaining);
         ret.push(val);

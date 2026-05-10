@@ -35,6 +35,7 @@ use crate::runtime::transact::SessionTx;
 use crate::storage::Storage;
 use crate::{Db, NamedRows, SourceSpan, StoreTx};
 
+#[allow(dead_code)]
 #[derive(Debug, Error, Diagnostic)]
 #[error("attempting to write into relation {0} of arity {1} with data of arity {2}")]
 #[diagnostic(code(eval::relation_arity_mismatch))]
@@ -104,7 +105,7 @@ impl<'a> SessionTx<'a> {
                             if err.source_code().is_some() {
                                 err
                             } else {
-                                err.with_source_code(format!("{trigger}"))
+                                err.with_source_code(trigger.to_string())
                             }
                         })?;
                     to_clear.extend(cleanups);
@@ -306,16 +307,18 @@ impl<'a> SessionTx<'a> {
                 || has_lsh_indices
             {
                 if let Some(existing) = self.store_tx.get(&key, false)? {
-                    let mut tup = extracted[0..relation_store.metadata.keys.len()].to_vec();
+                    let mut tup = extracted[0..relation_store.metadata.keys.len()]
+                        .to_vec()
+                        .into();
                     extend_tuple_from_v(&mut tup, &existing);
-                    if has_indices && extracted != tup {
+                    if has_indices && extracted.as_slice() != tup.as_slice() {
                         self.update_in_index(relation_store, &extracted, &tup)?;
                         self.del_in_fts(relation_store, &mut stack, &fts_lsh_processors, &tup)?;
                         self.del_in_lsh(relation_store, &tup)?;
                     }
 
                     if need_to_collect {
-                        old_tuples.push(DataValue::List(tup));
+                        old_tuples.push(DataValue::list(tup));
                     }
                 } else if has_indices {
                     for (idx_rel, extractor) in relation_store.indices.values() {
@@ -340,7 +343,7 @@ impl<'a> SessionTx<'a> {
                 )?;
 
                 if need_to_collect {
-                    new_tuples.push(DataValue::List(extracted));
+                    new_tuples.push(DataValue::list(extracted));
                 }
             }
 
@@ -624,7 +627,7 @@ impl<'a> SessionTx<'a> {
                 self.update_in_index(relation_store, &new_kv, &old_kv)?;
 
                 if need_to_collect {
-                    old_tuples.push(DataValue::List(old_kv));
+                    old_tuples.push(DataValue::list(old_kv));
                 }
 
                 self.update_in_hnsw(relation_store, &mut stack, &hnsw_filters, &new_kv)?;
@@ -638,7 +641,7 @@ impl<'a> SessionTx<'a> {
                 )?;
 
                 if need_to_collect {
-                    new_tuples.push(DataValue::List(new_kv));
+                    new_tuples.push(DataValue::list(new_kv));
                 }
             }
 
@@ -751,7 +754,7 @@ impl<'a> SessionTx<'a> {
                     new_tuples
                         .into_iter()
                         .map(|v| match v {
-                            DataValue::List(l) => l,
+                            DataValue::List(l) => *l,
                             _ => unreachable!(),
                         })
                         .collect_vec(),
@@ -761,7 +764,7 @@ impl<'a> SessionTx<'a> {
                     old_tuples
                         .into_iter()
                         .map(|v| match v {
-                            DataValue::List(l) => l,
+                            DataValue::List(l) => *l,
                             _ => unreachable!(),
                         })
                         .collect_vec(),
@@ -985,7 +988,7 @@ impl<'a> SessionTx<'a> {
                 || has_lsh_indices
             {
                 if let Some(existing) = self.store_tx.get(&key, false)? {
-                    let mut tup = extracted.clone();
+                    let mut tup = extracted.clone().into();
                     extend_tuple_from_v(&mut tup, &existing);
                     self.del_in_fts(relation_store, &mut stack, &fts_processors, &tup)?;
                     self.del_in_lsh(relation_store, &tup)?;
@@ -1003,11 +1006,11 @@ impl<'a> SessionTx<'a> {
                         }
                     }
                     if need_to_collect {
-                        old_tuples.push(DataValue::List(tup));
+                        old_tuples.push(DataValue::list(tup));
                     }
                 }
                 if need_to_collect {
-                    new_tuples.push(DataValue::List(extracted.clone()));
+                    new_tuples.push(DataValue::list(extracted.clone()));
                 }
             }
             if relation_store.is_temp {
@@ -1088,7 +1091,7 @@ impl<'a> SessionTx<'a> {
                         new_tuples
                             .into_iter()
                             .map(|v| match v {
-                                DataValue::List(l) => l,
+                                DataValue::List(l) => *l,
                                 _ => unreachable!(),
                             })
                             .collect_vec(),
@@ -1101,7 +1104,7 @@ impl<'a> SessionTx<'a> {
                         old_tuples
                             .into_iter()
                             .map(|v| match v {
-                                DataValue::List(l) => l,
+                                DataValue::List(l) => *l,
                                 _ => unreachable!(),
                             })
                             .collect_vec(),
@@ -1210,7 +1213,7 @@ fn make_const_rule(
     options.insert(
         SmartString::from("data"),
         Expr::Const {
-            val: DataValue::List(data),
+            val: DataValue::list(data),
             span: Default::default(),
         },
     );

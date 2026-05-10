@@ -124,12 +124,12 @@ fn encode_decode_datavalues() {
         DataValue::from(i64::MIN + 2),
         DataValue::from(f64::INFINITY),
         DataValue::from(f64::NEG_INFINITY),
-        DataValue::List(vec![]),
+        DataValue::list(vec![]),
     ];
-    dv.push(DataValue::List(dv.clone()));
-    dv.push(DataValue::List(dv.clone()));
+    dv.push(DataValue::list(dv.clone()));
+    dv.push(DataValue::list(dv.clone()));
     let mut encoded = vec![];
-    let v = DataValue::List(dv);
+    let v = DataValue::list(dv);
     encoded.encode_datavalue(&v);
     let (decoded, remaining) = DataValue::decode_from_key(&encoded);
     assert!(remaining.is_empty());

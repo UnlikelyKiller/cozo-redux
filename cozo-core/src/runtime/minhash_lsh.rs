@@ -127,7 +127,7 @@ impl<'a> SessionTx<'a> {
             self.store_tx.put(&key_bytes, &[])?;
         }
 
-        let inv_val_part = vec![DataValue::List(
+        let inv_val_part = vec![DataValue::list(
             chunks.into_iter().map(DataValue::Bytes).collect_vec(),
         )];
         let inv_key = inv_idx_handle.encode_key_for_store(inv_key_part, Default::default())?;

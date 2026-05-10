@@ -164,7 +164,9 @@ impl NormalAggrObj for AggrUnique {
     }
 
     fn get(&self) -> Result<DataValue> {
-        Ok(DataValue::List(self.accum.iter().cloned().collect()))
+        Ok(DataValue::list(
+            self.accum.iter().cloned().collect::<Vec<_>>(),
+        ))
     }
 }
 
@@ -183,11 +185,11 @@ impl NormalAggrObj for AggrGroupCount {
     }
 
     fn get(&self) -> Result<DataValue> {
-        Ok(DataValue::List(
+        Ok(DataValue::list(
             self.accum
                 .iter()
-                .map(|(k, v)| DataValue::List(vec![k.clone(), DataValue::from(*v)]))
-                .collect(),
+                .map(|(k, v)| DataValue::list(vec![k.clone(), DataValue::from(*v)]))
+                .collect::<Vec<_>>(),
         ))
     }
 }
@@ -231,7 +233,9 @@ impl NormalAggrObj for AggrUnion {
     }
 
     fn get(&self) -> Result<DataValue> {
-        Ok(DataValue::List(self.accum.iter().cloned().collect()))
+        Ok(DataValue::list(
+            self.accum.iter().cloned().collect::<Vec<_>>(),
+        ))
     }
 }
 
@@ -239,14 +243,14 @@ pub(crate) struct MeetAggrUnion;
 
 impl MeetAggrObj for MeetAggrUnion {
     fn init_val(&self) -> DataValue {
-        DataValue::Set(BTreeSet::new())
+        DataValue::set(BTreeSet::new())
     }
 
     fn update(&self, left: &mut DataValue, right: &DataValue) -> Result<bool> {
         loop {
             if let DataValue::List(l) = left {
-                let s = l.iter().cloned().collect();
-                *left = DataValue::Set(s);
+                let s = l.iter().cloned().collect::<BTreeSet<_>>();
+                *left = DataValue::set(s);
                 continue;
             }
             return Ok(match (left, right) {
@@ -298,8 +302,8 @@ impl NormalAggrObj for AggrIntersection {
 
     fn get(&self) -> Result<DataValue> {
         match &self.accum {
-            None => Ok(DataValue::List(vec![])),
-            Some(l) => Ok(DataValue::List(l.iter().cloned().collect())),
+            None => Ok(DataValue::list(vec![])),
+            Some(l) => Ok(DataValue::list(l.iter().cloned().collect::<Vec<_>>())),
         }
     }
 }
@@ -320,8 +324,8 @@ impl MeetAggrObj for MeetAggrIntersection {
         }
         loop {
             if let DataValue::List(l) = left {
-                let s = l.iter().cloned().collect();
-                *left = DataValue::Set(s);
+                let s = l.iter().cloned().collect::<BTreeSet<_>>();
+                *left = DataValue::set(s);
                 continue;
             }
             return Ok(match (left, right) {
@@ -331,7 +335,7 @@ impl MeetAggrObj for MeetAggrIntersection {
                     if old_len == new_set.len() {
                         false
                     } else {
-                        *l = new_set;
+                        **l = new_set;
                         true
                     }
                 }
@@ -342,7 +346,7 @@ impl MeetAggrObj for MeetAggrIntersection {
                     if old_len == new_set.len() {
                         false
                     } else {
-                        *l = new_set;
+                        **l = new_set;
                         true
                     }
                 }
@@ -381,7 +385,7 @@ impl NormalAggrObj for AggrCollect {
     }
 
     fn get(&self) -> Result<DataValue> {
-        Ok(DataValue::List(self.accum.clone()))
+        Ok(DataValue::list(self.accum.clone()))
     }
 }
 
@@ -835,7 +839,7 @@ impl NormalAggrObj for AggrMinCost {
     }
 
     fn get(&self) -> Result<DataValue> {
-        Ok(DataValue::List(vec![
+        Ok(DataValue::list(vec![
             self.found.clone(),
             DataValue::from(self.cost),
         ]))
@@ -846,7 +850,7 @@ pub(crate) struct MeetAggrMinCost;
 
 impl MeetAggrObj for MeetAggrMinCost {
     fn init_val(&self) -> DataValue {
-        DataValue::List(vec![DataValue::Null, DataValue::from(f64::INFINITY)])
+        DataValue::list(vec![DataValue::Null, DataValue::from(f64::INFINITY)])
     }
 
     fn update(&self, left: &mut DataValue, right: &DataValue) -> Result<bool> {
@@ -891,10 +895,10 @@ impl NormalAggrObj for AggrShortest {
         match value {
             DataValue::List(l) => {
                 match self.found {
-                    None => self.found = Some(l.clone()),
+                    None => self.found = Some(*l.clone()),
                     Some(ref mut found) => {
                         if l.len() < found.len() {
-                            *found = l.clone();
+                            *found = *l.clone();
                         }
                     }
                 }
@@ -907,7 +911,7 @@ impl NormalAggrObj for AggrShortest {
     fn get(&self) -> Result<DataValue> {
         Ok(match self.found {
             None => DataValue::Null,
-            Some(ref l) => DataValue::List(l.clone()),
+            Some(ref l) => DataValue::list(l.clone()),
         })
     }
 }

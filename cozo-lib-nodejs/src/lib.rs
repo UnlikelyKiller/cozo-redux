@@ -17,11 +17,14 @@ use serde_json::json;
 
 use cozo::*;
 
-fn rows2js<'a>(cx: &mut impl Context<'a>, rows: &[Vec<DataValue>]) -> JsResult<'a, JsArray> {
+fn rows2js<'a, R: AsRef<[DataValue]>>(
+    cx: &mut impl Context<'a>,
+    rows: &[R],
+) -> JsResult<'a, JsArray> {
     let coll = cx.empty_array();
     for (j, row) in rows.iter().enumerate() {
         let cur = cx.empty_array();
-        for (i, el) in row.iter().enumerate() {
+        for (i, el) in row.as_ref().iter().enumerate() {
             let el = value2js(cx, el)?;
             cur.set(cx, i as u32, el)?;
         }
@@ -74,7 +77,7 @@ fn js2value<'a>(
             js2value(cx, v, &mut target)?;
             ret.push(target);
         }
-        *coll = DataValue::List(ret);
+        *coll = DataValue::List(Box::new(ret));
     } else if let Ok(b) = val.downcast::<JsBuffer, _>(cx) {
         let d = b.as_slice(cx);
         *coll = DataValue::Bytes(d.to_vec());
@@ -88,7 +91,7 @@ fn js2value<'a>(
             js2value(cx, v, &mut target)?;
             coll_inner.insert(name, serde_json::Value::from(target));
         }
-        *coll = DataValue::Json(JsonData(json!(coll_inner)));
+        *coll = DataValue::Json(Box::new(JsonData(json!(coll_inner))));
     } else {
         let err = cx.string("Javascript value cannot be converted.");
         return cx.throw(err);
@@ -172,7 +175,7 @@ fn value2js<'a>(cx: &mut impl Context<'a>, val: &DataValue) -> JsResult<'a, JsVa
         DataValue::Bot => cx.undefined().as_value(cx),
         DataValue::Vec(v) => {
             let target_l = cx.empty_array();
-            match v {
+            match v.as_ref() {
                 Vector::F32(a) => {
                     for (i, el) in a.iter().enumerate() {
                         let el = cx.number(*el as f64);
@@ -188,7 +191,7 @@ fn value2js<'a>(cx: &mut impl Context<'a>, val: &DataValue) -> JsResult<'a, JsVa
             }
             target_l.as_value(cx)
         }
-        DataValue::Json(JsonData(j)) => json2js(cx, j)?,
+        DataValue::Json(j) => json2js(cx, &j.0)?,
     })
 }
 
@@ -248,7 +251,7 @@ fn js2stored<'a>(
     let mut rows = vec![];
     js2rows(cx, rows_js, &mut rows)?;
     collector.headers = headers;
-    collector.rows = rows;
+    collector.rows = rows.into_iter().map(Into::into).collect();
     Ok(cx.undefined())
 }
 

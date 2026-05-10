@@ -90,7 +90,7 @@ impl FixedRule for ShortestPathDijkstra {
                         indices[start as usize].clone(),
                         indices[target as usize].clone(),
                         DataValue::from(cost as f64),
-                        DataValue::List(
+                        DataValue::list(
                             path.into_iter()
                                 .map(|u| indices[u as usize].clone())
                                 .collect_vec(),
@@ -138,7 +138,7 @@ impl FixedRule for ShortestPathDijkstra {
                         indices[start as usize].clone(),
                         indices[target as usize].clone(),
                         DataValue::from(cost as f64),
-                        DataValue::List(
+                        DataValue::list(
                             path.into_iter()
                                 .map(|u| indices[u as usize].clone())
                                 .collect_vec(),
@@ -162,6 +162,7 @@ impl FixedRule for ShortestPathDijkstra {
     }
 }
 
+#[allow(dead_code)]
 #[derive(PartialEq)]
 struct HeapState {
     cost: f64,

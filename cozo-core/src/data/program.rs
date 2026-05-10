@@ -239,6 +239,7 @@ impl TempSymbGen {
     }
 }
 
+#[allow(missing_docs)]
 #[derive(Debug, Clone)]
 pub enum InputInlineRulesOrFixed {
     Rules { rules: Vec<InputInlineRule> },
@@ -269,6 +270,7 @@ impl InputInlineRulesOrFixed {
     // }
 }
 
+#[allow(missing_docs)]
 #[derive(Clone)]
 pub struct FixedRuleApply {
     pub fixed_handle: FixedRuleHandle,
@@ -399,10 +401,15 @@ pub enum FixedRuleArg {
         /// The source span of the argument.
         span: SourceSpan,
     },
+    /// A stored relation argument (with optional time travel).
     Stored {
+        /// The name of the relation.
         name: Symbol,
+        /// The bindings for the relation.
         bindings: Vec<Symbol>,
+        /// Optional validity timestamp.
         valid_at: Option<ValidityTs>,
+        /// The source span of the argument.
         span: SourceSpan,
     },
     /// A stored relation argument with named fields.
@@ -498,7 +505,9 @@ pub struct InputProgram {
     ///
     /// Ex: `?` in `?[a, b] := ...`
     pub prog: BTreeMap<Symbol, InputInlineRulesOrFixed>,
+    /// Output options for the query.
     pub out_opts: QueryOutOptions,
+    /// Whether to disable magic rewrite optimization.
     pub disable_magic_rewrite: bool,
 }
 
@@ -962,24 +971,27 @@ impl MagicInlineRule {
     }
 }
 
-
 /// Represents an atom in the input Datalog program.
 #[derive(Clone)]
 pub enum InputAtom {
     /// A rule application atom.
     Rule {
+        /// The inner rule application.
         inner: InputRuleApplyAtom,
     },
     /// A named field relation application atom.
     NamedFieldRelation {
+        /// The inner named-field relation application.
         inner: InputNamedFieldRelationApplyAtom,
     },
     /// A relation application atom.
     Relation {
+        /// The inner relation application.
         inner: InputRelationApplyAtom,
     },
     /// A predicate expression.
     Predicate {
+        /// The predicate expression.
         inner: Expr,
     },
     /// A negated atom.
@@ -1163,11 +1175,13 @@ impl SearchInput {
         #[derive(Debug, Error, Diagnostic)]
         #[error("Expected a list of keys for LSH search")]
         #[diagnostic(code(parser::expected_list_for_lsh_keys))]
+        #[allow(dead_code)]
         struct ExpectedListForLshKeys(#[label] SourceSpan);
 
         #[derive(Debug, Error, Diagnostic)]
         #[error("Wrong arity for LSH keys, expected {1}, got {2}")]
         #[diagnostic(code(parser::wrong_arity_for_lsh_keys))]
+        #[allow(dead_code)]
         struct WrongArityForKeys(#[label] SourceSpan, usize, usize);
 
         let query = match self

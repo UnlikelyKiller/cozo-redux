@@ -74,6 +74,7 @@ pub(crate) struct UnificationRA {
     pub(crate) span: SourceSpan,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Error, Diagnostic)]
 #[error("Found value {0:?} while iterating, unacceptable for an Entity ID")]
 #[diagnostic(code(eval::iter_bad_entity_id))]
@@ -91,7 +92,7 @@ fn eliminate_from_tuple(mut ret: Tuple, eliminate_indices: &BTreeSet<usize>) -> 
                     Some(v)
                 }
             })
-            .collect_vec();
+            .collect();
     }
     ret
 }
@@ -263,7 +264,7 @@ impl Debug for RelAlgebra {
                 } else if r.data.len() == 1 {
                     f.debug_tuple("Singlet")
                         .field(&bindings)
-                        .field(r.data.get(0).unwrap())
+                        .field(r.data.first().unwrap())
                         .finish()
                 } else {
                     f.debug_tuple("Fixed")
@@ -723,10 +724,7 @@ impl ReorderRA {
                 .iter(tx, delta_rule, stores)?
                 .map_ok(move |tuple| {
                     let old = tuple;
-                    let new = reorder_indices
-                        .iter()
-                        .map(|i| old[*i].clone())
-                        .collect_vec();
+                    let new = reorder_indices.iter().map(|i| old[*i].clone()).collect();
                     new
                 }),
         ))
@@ -788,7 +786,7 @@ impl InlineFixedRA {
                 let left_join_values = left_join_indices.iter().map(|v| &tuple[*v]).collect_vec();
                 if left_join_values.into_iter().eq(right_join_values.iter()) {
                     let mut ret = tuple;
-                    ret.extend_from_slice(&data);
+                    ret.extend(data.iter().cloned());
                     let ret = ret;
                     let ret = eliminate_from_tuple(ret, &eliminate_indices);
                     Some(ret)
@@ -818,10 +816,10 @@ impl InlineFixedRA {
                             v.iter()
                                 .map(|right_values| {
                                     let mut left_data = tuple.clone();
-                                    left_data.extend_from_slice(right_values);
+                                    left_data.extend(right_values.iter().cloned());
                                     left_data
                                 })
-                                .collect_vec()
+                                .collect::<Vec<_>>()
                         })
                     })
                     .flatten_ok(),
@@ -911,7 +909,7 @@ pub(crate) struct LshSearchRA {
 impl LshSearchRA {
     fn fill_binding_indices_and_compile(&mut self) -> Result<()> {
         self.parent.fill_binding_indices_and_compile()?;
-        if self.lsh_search.filter.is_some() {
+        if let Some(filter) = self.lsh_search.filter.as_mut() {
             let bindings: BTreeMap<_, _> = self
                 .own_bindings
                 .iter()
@@ -919,7 +917,6 @@ impl LshSearchRA {
                 .enumerate()
                 .map(|(a, b)| (b, a))
                 .collect();
-            let filter = self.lsh_search.filter.as_mut().unwrap();
             filter.fill_binding_indices(&bindings)?;
             self.filter_bytecode = Some((filter.compile()?, filter.span()));
         }
@@ -984,7 +981,7 @@ pub(crate) struct FtsSearchRA {
 impl FtsSearchRA {
     fn fill_binding_indices_and_compile(&mut self) -> Result<()> {
         self.parent.fill_binding_indices_and_compile()?;
-        if self.fts_search.filter.is_some() {
+        if let Some(filter) = self.fts_search.filter.as_mut() {
             let bindings: BTreeMap<_, _> = self
                 .own_bindings
                 .iter()
@@ -992,7 +989,6 @@ impl FtsSearchRA {
                 .enumerate()
                 .map(|(a, b)| (b, a))
                 .collect();
-            let filter = self.fts_search.filter.as_mut().unwrap();
             filter.fill_binding_indices(&bindings)?;
             self.filter_bytecode = Some((filter.compile()?, filter.span()));
         }
@@ -1029,13 +1025,13 @@ impl FtsSearchRA {
                     DataValue::Str(s) => s,
                     DataValue::List(l) => {
                         let mut coll = SmartString::new();
-                        for d in l {
+                        for d in l.iter() {
                             match d {
                                 DataValue::Str(s) => {
                                     if !coll.is_empty() {
                                         coll.write_str(" OR ").unwrap();
                                     }
-                                    coll.write_str(&s).unwrap();
+                                    coll.write_str(s).unwrap();
                                 }
                                 d => bail!("Expected string for FTS search, got {:?}", d),
                             }
@@ -1068,7 +1064,7 @@ impl FtsSearchRA {
 impl HnswSearchRA {
     fn fill_binding_indices_and_compile(&mut self) -> Result<()> {
         self.parent.fill_binding_indices_and_compile()?;
-        if self.hnsw_search.filter.is_some() {
+        if let Some(filter) = self.hnsw_search.filter.as_mut() {
             let bindings: BTreeMap<_, _> = self
                 .own_bindings
                 .iter()
@@ -1076,7 +1072,6 @@ impl HnswSearchRA {
                 .enumerate()
                 .map(|(a, b)| (b, a))
                 .collect();
-            let filter = self.hnsw_search.filter.as_mut().unwrap();
             filter.fill_binding_indices(&bindings)?;
             self.filter_bytecode = Some((filter.compile()?, filter.span()));
         }
@@ -1104,7 +1099,7 @@ impl HnswSearchRA {
             .iter(tx, delta_rule, stores)?
             .map_ok(move |tuple| -> Result<_> {
                 let v = match tuple[bind_idx].clone() {
-                    DataValue::Vec(v) => v,
+                    DataValue::Vec(v) => *v,
                     d => bail!("Expected vector, got {:?}", d),
                 };
 
@@ -1180,10 +1175,8 @@ impl StoredWithValidityRA {
                 if !skip_range_check && !self.filters.is_empty() {
                     let other_bindings =
                         &self.bindings[right_join_indices.len()..self.storage.metadata.keys.len()];
-                    let (l_bound, u_bound) = match compute_bounds(&self.filters, other_bindings) {
-                        Ok(b) => b,
-                        _ => (vec![], vec![]),
-                    };
+                    let (l_bound, u_bound) =
+                        compute_bounds(&self.filters, other_bindings).unwrap_or_default();
                     if !l_bound.iter().all(|v| *v == DataValue::Null)
                         || !u_bound.iter().all(|v| *v == DataValue::Bot)
                     {
@@ -1344,10 +1337,8 @@ impl StoredRA {
                 if !skip_range_check && !self.filters.is_empty() {
                     let other_bindings =
                         &self.bindings[right_join_indices.len()..self.storage.metadata.keys.len()];
-                    let (l_bound, u_bound) = match compute_bounds(&self.filters, other_bindings) {
-                        Ok(b) => b,
-                        _ => (vec![], vec![]),
-                    };
+                    let (l_bound, u_bound) =
+                        compute_bounds(&self.filters, other_bindings).unwrap_or_default();
                     if !l_bound.iter().all(|v| *v == DataValue::Null)
                         || !u_bound.iter().all(|v| *v == DataValue::Bot)
                     {
@@ -1446,7 +1437,7 @@ impl StoredRA {
                                         Some(v)
                                     }
                                 })
-                                .collect_vec()
+                                .collect()
                         } else {
                             tuple
                         }))
@@ -1487,7 +1478,7 @@ impl StoredRA {
                                         Some(v)
                                     }
                                 })
-                                .collect_vec()
+                                .collect()
                         } else {
                             tuple
                         }))
@@ -1614,7 +1605,7 @@ impl TempStoreRA {
                                         Some(v)
                                     }
                                 })
-                                .collect_vec()
+                                .collect()
                         } else {
                             tuple
                         }))
@@ -1653,7 +1644,7 @@ impl TempStoreRA {
                                         Some(v)
                                     }
                                 })
-                                .collect_vec()
+                                .collect()
                         } else {
                             tuple
                         }))
@@ -1694,10 +1685,8 @@ impl TempStoreRA {
 
                 if !skip_range_check && !self.filters.is_empty() {
                     let other_bindings = &self.bindings[right_join_indices.len()..];
-                    let (l_bound, u_bound) = match compute_bounds(&self.filters, other_bindings) {
-                        Ok(b) => b,
-                        _ => (vec![], vec![]),
-                    };
+                    let (l_bound, u_bound) =
+                        compute_bounds(&self.filters, other_bindings).unwrap_or_default();
                     if !l_bound.iter().all(|v| *v == DataValue::Null)
                         || !u_bound.iter().all(|v| *v == DataValue::Bot)
                     {
@@ -1905,7 +1894,7 @@ impl RelAlgebra {
         stores: &'a BTreeMap<MagicSymbol, EpochStore>,
     ) -> Result<TupleIter<'a>> {
         match self {
-            RelAlgebra::Fixed(f) => Ok(Box::new(f.data.iter().map(|t| Ok(t.clone())))),
+            RelAlgebra::Fixed(f) => Ok(Box::new(f.data.iter().map(|t| Ok(t.clone().into())))),
             RelAlgebra::TempStore(r) => r.iter(delta_rule, stores),
             RelAlgebra::Stored(v) => v.iter(tx),
             RelAlgebra::StoredWithValidity(v) => v.iter(tx),
@@ -2264,7 +2253,7 @@ impl InnerJoin {
                         let stored_tuple = right_store_indices
                             .iter()
                             .map(|i| tuple[*i].clone())
-                            .collect_vec();
+                            .collect();
                         cache.insert(stored_tuple);
                     }
                     Err(e) => return Err(e),
@@ -2356,10 +2345,10 @@ fn build_mat_range_iter(
     left_join_indices: &[usize],
     left_tuple: &Tuple,
 ) -> (Tuple, usize) {
-    let prefix = left_join_indices
+    let prefix: Tuple = left_join_indices
         .iter()
         .map(|i| left_tuple[*i].clone())
-        .collect_vec();
+        .collect();
     let idx = match mat.binary_search(&prefix) {
         Ok(i) => i,
         Err(i) => i,
@@ -2393,7 +2382,7 @@ mod tests {
             .unwrap()
             .rows;
         assert_eq!(
-            res,
+            res.into_iter().map(|r| r.into_vec()).collect::<Vec<_>>(),
             vec![vec![DataValue::from(1)], vec![DataValue::from(2)]]
         )
     }

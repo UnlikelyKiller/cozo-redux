@@ -170,7 +170,9 @@ impl<'s> SqliteTx<'s> {
             // Casting away the lifetime!
             // This is OK because we are abiding by the contract of the underlying C pointer,
             // as required by Sqlite's implementation
-            let prepared = unsafe { std::mem::transmute(prepared) };
+            let prepared = unsafe {
+                std::mem::transmute::<sqlite::Statement<'_>, sqlite::Statement<'_>>(prepared)
+            };
 
             *stmt = Some(prepared)
         }

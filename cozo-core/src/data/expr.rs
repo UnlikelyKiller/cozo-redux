@@ -258,6 +258,7 @@ pub(crate) struct PredicateTypeError(#[label] pub(crate) SourceSpan, pub(crate) 
 #[error("Cannot build entity ID from {0:?}")]
 #[diagnostic(code(parser::bad_eid))]
 #[diagnostic(help("Entity ID should be an integer satisfying certain constraints"))]
+#[allow(dead_code)]
 struct BadEntityId(DataValue, #[label] SourceSpan);
 
 #[derive(Error, Diagnostic, Debug)]
@@ -418,8 +419,8 @@ impl Expr {
                 all_evaluated = all_evaluated && matches!(arg, Expr::Const { .. });
             }
             if all_evaluated {
-                let result = self.eval(&vec![])?;
-                mem::swap(self, &mut Expr::Const { val: result, span });
+                let result = self.eval(&[])?;
+                *self = Expr::Const { val: result, span };
             }
             // nested not's can accumulate during conversion to normal form
             if let Expr::Apply {
@@ -733,6 +734,7 @@ pub struct Op {
 }
 
 /// Used as `Arc<dyn CustomOp>`
+#[allow(dead_code)]
 pub trait CustomOp {
     fn name(&self) -> &'static str;
     fn min_arity(&self) -> usize;

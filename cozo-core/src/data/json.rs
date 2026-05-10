@@ -27,8 +27,10 @@ impl From<JsonValue> for DataValue {
                 },
             },
             JsonValue::String(s) => DataValue::from(s),
-            JsonValue::Array(arr) => DataValue::List(arr.iter().map(DataValue::from).collect()),
-            JsonValue::Object(d) => DataValue::Json(JsonData(JsonValue::Object(d))),
+            JsonValue::Array(arr) => {
+                DataValue::list(arr.iter().map(DataValue::from).collect::<Vec<_>>())
+            }
+            JsonValue::Object(d) => DataValue::json(JsonData(JsonValue::Object(d))),
         }
     }
 }
@@ -46,8 +48,10 @@ impl<'a> From<&'a JsonValue> for DataValue {
                 },
             },
             JsonValue::String(s) => DataValue::Str(s.into()),
-            JsonValue::Array(arr) => DataValue::List(arr.iter().map(DataValue::from).collect()),
-            JsonValue::Object(d) => DataValue::Json(JsonData(JsonValue::Object(d.clone()))),
+            JsonValue::Array(arr) => {
+                DataValue::list(arr.iter().map(DataValue::from).collect::<Vec<_>>())
+            }
+            JsonValue::Object(d) => DataValue::json(JsonData(JsonValue::Object(d.clone()))),
         }
     }
 }
@@ -88,7 +92,7 @@ impl From<DataValue> for JsonValue {
             DataValue::Uuid(u) => {
                 json!(u.0)
             }
-            DataValue::Vec(arr) => match arr {
+            DataValue::Vec(arr) => match arr.as_ref() {
                 Vector::F32(a) => json!(a.as_slice().unwrap()),
                 Vector::F64(a) => json!(a.as_slice().unwrap()),
             },

@@ -30,6 +30,8 @@
 #![warn(missing_docs)]
 #![allow(clippy::type_complexity)]
 #![allow(clippy::too_many_arguments)]
+#![allow(clippy::mutable_key_type)] // DataValue's Ord never mutates interior Regex state
+#![allow(private_interfaces)] // Intentional: pub fields reference pub(crate) types
 
 use std::collections::BTreeMap;
 use std::path::Path;

@@ -428,9 +428,9 @@ impl RelationHandle {
     pub(crate) fn scan_prefix<'a>(
         &self,
         tx: &'a SessionTx<'_>,
-        prefix: &Tuple,
+        prefix: &[DataValue],
     ) -> impl Iterator<Item = Result<Tuple>> + 'a {
-        let mut lower = prefix.clone();
+        let mut lower: Tuple = prefix.iter().cloned().collect();
         lower.truncate(self.metadata.keys.len());
         let mut upper = lower.clone();
         upper.push(DataValue::Bot);
@@ -448,10 +448,10 @@ impl RelationHandle {
     pub(crate) fn skip_scan_prefix<'a>(
         &self,
         tx: &'a SessionTx<'_>,
-        prefix: &Tuple,
+        prefix: &[DataValue],
         valid_at: ValidityTs,
     ) -> impl Iterator<Item = Result<Tuple>> + 'a {
-        let mut lower = prefix.clone();
+        let mut lower: Tuple = prefix.iter().cloned().collect();
         lower.truncate(self.metadata.keys.len());
         let mut upper = lower.clone();
         upper.push(DataValue::Bot);
@@ -473,10 +473,10 @@ impl RelationHandle {
         lower: &[DataValue],
         upper: &[DataValue],
     ) -> impl Iterator<Item = Result<Tuple>> + 'a {
-        let mut lower_t = prefix.to_vec();
-        lower_t.extend_from_slice(lower);
-        let mut upper_t = prefix.to_vec();
-        upper_t.extend_from_slice(upper);
+        let mut lower_t: Tuple = prefix.iter().cloned().collect();
+        lower_t.extend(lower.iter().cloned());
+        let mut upper_t: Tuple = prefix.iter().cloned().collect();
+        upper_t.extend(upper.iter().cloned());
         upper_t.push(DataValue::Bot);
         let lower_encoded = lower_t.encode_as_key(self.id);
         let upper_encoded = upper_t.encode_as_key(self.id);
@@ -490,15 +490,15 @@ impl RelationHandle {
     pub(crate) fn skip_scan_bounded_prefix<'a>(
         &self,
         tx: &'a SessionTx<'_>,
-        prefix: &Tuple,
+        prefix: &[DataValue],
         lower: &[DataValue],
         upper: &[DataValue],
         valid_at: ValidityTs,
     ) -> impl Iterator<Item = Result<Tuple>> + 'a {
-        let mut lower_t = prefix.clone();
-        lower_t.extend_from_slice(lower);
-        let mut upper_t = prefix.clone();
-        upper_t.extend_from_slice(upper);
+        let mut lower_t: Tuple = prefix.iter().cloned().collect();
+        lower_t.extend(lower.iter().cloned());
+        let mut upper_t: Tuple = prefix.iter().cloned().collect();
+        upper_t.extend(upper.iter().cloned());
         upper_t.push(DataValue::Bot);
         let lower_encoded = lower_t.encode_as_key(self.id);
         let upper_encoded = upper_t.encode_as_key(self.id);
