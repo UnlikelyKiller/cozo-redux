@@ -23,21 +23,46 @@ use crate::data::value::DataValue;
 
 /// A store holding temp data during evaluation of queries.
 /// The public interface is used in custom implementations of algorithms/utilities.
+///
+/// Writes accumulate in `pending` (O(1) Vec push). At `wrap()` time, `pending` is
+/// sorted and drained into `inner` (BTreeMap) so range scans see consistent sorted
+/// order. After `wrap()`, `pending` is always empty.
 #[derive(Default, Debug)]
 pub struct RegularTempStore {
     inner: BTreeMap<Tuple, bool>,
+    pending: Vec<(Tuple, bool)>,
 }
 
 const EMPTY_TUPLE: Tuple = Tuple::new_const();
 const EMPTY_TUPLE_REF: &Tuple = &EMPTY_TUPLE;
 
 impl RegularTempStore {
-    pub(crate) fn wrap(self) -> TempStore {
+    pub(crate) fn wrap(mut self) -> TempStore {
+        self.commit_pending();
         TempStore::Normal(self)
     }
+
+    /// Sorts and drains `pending` into `inner`. Called at the write→read boundary.
+    fn commit_pending(&mut self) {
+        if self.pending.is_empty() {
+            return;
+        }
+        // Stable sort preserves insertion order within equal keys so that
+        // later put_with_skip() overwrites earlier put() for the same tuple,
+        // matching BTreeMap::insert() semantics (last write wins).
+        self.pending.sort_by(|(a, _), (b, _)| a.cmp(b));
+        self.inner.extend(self.pending.drain(..));
+    }
+
     /// Tests if a key already exists in the store.
     pub fn exists(&self, key: &[DataValue]) -> bool {
-        self.inner.contains_key(key)
+        if self.inner.contains_key(key) {
+            return true;
+        }
+        // During the write phase (before commit_pending), check the buffer.
+        // pending is bounded by the LIMIT value on limit-checking paths, so
+        // this linear scan is over a small slice in practice.
+        self.pending.iter().any(|(t, _)| t.as_slice() == key)
     }
 
     fn range_iter(
@@ -46,6 +71,10 @@ impl RegularTempStore {
         upper: &Tuple,
         upper_inclusive: bool,
     ) -> impl Iterator<Item = TupleInIter<'_>> {
+        debug_assert!(
+            self.pending.is_empty(),
+            "range_iter called with uncommitted pending writes"
+        );
         let lower_bound = Included(lower.clone());
         let upper_bound = if upper_inclusive {
             Included(upper.clone())
@@ -58,14 +87,26 @@ impl RegularTempStore {
     }
     /// Add a tuple to the store
     pub fn put<T: Into<Tuple>>(&mut self, tuple: T) {
-        self.inner.insert(tuple.into(), false);
+        self.pending.push((tuple.into(), false));
     }
     pub(crate) fn put_with_skip<T: Into<Tuple>>(&mut self, tuple: T) {
-        self.inner.insert(tuple.into(), true);
+        self.pending.push((tuple.into(), true));
     }
     // returns true if prev is guaranteed to be the same as self after this function call,
     // false if we are not sure.
     pub(crate) fn merge_in(&mut self, prev: &mut Self, mut new: Self) -> bool {
+        debug_assert!(
+            self.pending.is_empty(),
+            "merge_in: self.pending must be empty (commit_pending not called)"
+        );
+        debug_assert!(
+            prev.pending.is_empty(),
+            "merge_in: prev.pending must be empty"
+        );
+        debug_assert!(
+            new.pending.is_empty(),
+            "merge_in: new.pending must be empty (wrap not called)"
+        );
         prev.inner.clear();
         if new.inner.is_empty() {
             return false;
@@ -244,7 +285,7 @@ impl TempStore {
     }
     fn is_empty(&self) -> bool {
         match self {
-            TempStore::Normal(n) => n.inner.is_empty(),
+            TempStore::Normal(n) => n.inner.is_empty() && n.pending.is_empty(),
             TempStore::MeetAggr(m) => m.inner.is_empty(),
         }
     }
