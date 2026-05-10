@@ -7,34 +7,40 @@ This document outlines the planned upgrades to address upstream vulnerabilities 
 | Dependency | Advisory | Severity | Current | Target | Impact Path |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **lz4_flex** | [RUSTSEC-2026-0041](https://rustsec.org/advisories/RUSTSEC-2026-0041) | High | 0.10.0 | **>=0.11.6** | `cozo` -> `swapvec` -> `lz4_flex` |
-| **lru** | [RUSTSEC-2026-0002](https://rustsec.org/advisories/RUSTSEC-2026-0002) | Low | N/A | **0.16.3** | *No longer present in tree* |
+| **lru** | [RUSTSEC-2026-0002](https://rustsec.org/advisories/RUSTSEC-2026-0002) | Low | N/A | **0.16.3** | *Stacked Borrows violation* |
 
-### Notes on `lz4_flex`:
-- **Issue**: Memory leak/uninitialized memory leakage during malformed decompression.
-- **Fix**: Upgrade to 0.11.6+ or 0.12.1+.
-- **Mitigation (if upgrade fails)**: Enable `safe-decode` feature flag.
+### Detailed Research: Security Upgrades
+- **`lz4_flex` (0.10 -> 0.12.1)**:
+    - **Breaking**: Feature flag inversion. `checked-decode` is now the default. `unchecked-decode` must be explicitly enabled for performance.
+    - **Fix**: Resolves information leak from uninitialized memory.
+- **`lru`**:
+    - **Fix**: Addresses unsoundness in `IterMut` that violates Stacked Borrows.
 
 ## 2. Unmaintained Dependencies
 
-These crates are flagged as unmaintained and should be replaced with modern community standards.
-
 | Crate | Current | Recommended Alternative | Rationale |
 | :--- | :--- | :--- | :--- |
-| **adler** | 1.0.2 | **adler2** | Maintained fork with identical API. |
-| **fxhash** | 0.2.1 | **rustc-hash** | Maintained by the Rust compiler team; industry standard. |
-| **instant** | 0.1.12 | **web-time** | Correct cross-platform time handling (including WASM). |
-| **bincode** | 1.3.3 | **postcard** / **rkyv** | Modern serialization with better safety and performance. |
+| **adler** | 1.0.2 | **adler2** | Maintained fork; drop-in replacement. |
+| **fxhash** | 0.2.1 | **rustc-hash** | Maintained by Rust team; industry standard. |
+| **instant** | 0.1.12 | **web-time** | WASM-compatible time standard; replaces abandoned crate. |
+| **bincode** | 1.3.3 | **postcard** / **wincode** | Modern efficiency vs. legacy compatibility. |
 
-## 3. Implementation Strategy
+### Detailed Research: Migrations
+- **`instant` -> `web-time`**:
+    - **Breaking**: Types are not interchangeable with `std::time::Instant`. Requires import replacement.
+- **`bincode` -> `postcard`**:
+    - **CRITICAL BREAKING**: Binary format is incompatible. Data serialized with `bincode` cannot be read by `postcard`.
+    - **Decision**: Use `postcard` for new features/redux; use `wincode` if legacy data compatibility is required.
 
-### Phase 1: Direct Upgrades
-- Bump `lz4_flex` version in `Cargo.toml`.
-- Attempt to patch transitive dependencies using the `[patch.crates-io]` section if direct bumping is blocked.
+## 3. Conductor Tracks
 
-### Phase 2: Structural Replacements
-- Replace `fxhash` usages with `rustc-hash`.
-- Migrate `adler` to `adler2`.
-- Evaluate the impact of replacing `bincode` (requires re-serialization of any persistent data formats).
+The upgrade will be managed via the **Conductor** system in the `conductor/` directory.
+
+### Track Roadmap:
+1. **Track 001**: Infrastructure & Security Patches (`lz4_flex`, `lru`).
+2. **Track 002**: Unmaintained Hygiene (`adler`, `fxhash`).
+3. **Track 003**: Platform Modernization (`instant` -> `web-time`).
+4. **Track 004**: Serialization Overhaul (`bincode` -> `postcard`).
 
 ---
 *Generated: 2026-05-10*
