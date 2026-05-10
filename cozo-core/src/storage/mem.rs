@@ -25,6 +25,27 @@ use crate::runtime::relation::{decode_tuple_from_kv, extend_tuple_from_v};
 use crate::storage::{Storage, StoreTx};
 use crate::utils::swap_option_result;
 
+/// Allocation-free `[lower, upper)` range for `BTreeMap<Vec<u8>, _>`.
+///
+/// This concrete struct implements *only* `RangeBounds<[u8]>`, which lets the
+/// compiler uniquely pick `T = [u8]` and avoid the `Vec<u8>: Borrow<[u8]>` vs
+/// `Vec<u8>: Borrow<Vec<u8>>` ambiguity that arises with tuple-bound forms.
+struct ByteRange<'a>(&'a [u8], &'a [u8]);
+
+impl<'a> std::ops::RangeBounds<[u8]> for ByteRange<'a> {
+    fn start_bound(&self) -> Bound<&[u8]> {
+        Bound::Included(self.0)
+    }
+    fn end_bound(&self) -> Bound<&[u8]> {
+        Bound::Excluded(self.1)
+    }
+}
+
+#[inline(always)]
+fn byte_range<'a>(lower: &'a [u8], upper: &'a [u8]) -> ByteRange<'a> {
+    ByteRange(lower, upper)
+}
+
 /// Create a database backed by memory.
 /// This is the fastest storage, but non-persistent.
 /// Supports concurrent readers but only a single writer.
@@ -133,7 +154,7 @@ impl<'s> StoreTx<'s> for MemTx<'s> {
             }
             MemTx::Writer(ref mut wtr, _) => {
                 let keys = wtr
-                    .range(lower.to_vec()..upper.to_vec())
+                    .range(byte_range(lower, upper))
                     .map(|kv| kv.0.clone())
                     .collect_vec();
                 for k in keys.iter() {
@@ -186,12 +207,12 @@ impl<'s> StoreTx<'s> for MemTx<'s> {
     {
         match self {
             MemTx::Reader(rdr) => Box::new(
-                rdr.range(lower.to_vec()..upper.to_vec())
+                rdr.range(byte_range(lower, upper))
                     .map(|(k, v)| Ok(decode_tuple_from_kv(k, v, None))),
             ),
             MemTx::Writer(wtr, cache) => Box::new(CacheIter {
-                change_iter: cache.range(lower.to_vec()..upper.to_vec()).fuse(),
-                db_iter: wtr.range(lower.to_vec()..upper.to_vec()).fuse(),
+                change_iter: cache.range(byte_range(lower, upper)).fuse(),
+                db_iter: wtr.range(byte_range(lower, upper)).fuse(),
                 change_cache: None,
                 db_cache: None,
             }),
@@ -238,12 +259,12 @@ impl<'s> StoreTx<'s> for MemTx<'s> {
     {
         match self {
             MemTx::Reader(rdr) => Box::new(
-                rdr.range(lower.to_vec()..upper.to_vec())
+                rdr.range(byte_range(lower, upper))
                     .map(|(k, v)| Ok((k.clone(), v.clone()))),
             ),
             MemTx::Writer(wtr, cache) => Box::new(CacheIterRaw {
-                change_iter: cache.range(lower.to_vec()..upper.to_vec()).fuse(),
-                db_iter: wtr.range(lower.to_vec()..upper.to_vec()).fuse(),
+                change_iter: cache.range(byte_range(lower, upper)).fuse(),
+                db_iter: wtr.range(byte_range(lower, upper)).fuse(),
                 change_cache: None,
                 db_cache: None,
             }),
@@ -255,10 +276,10 @@ impl<'s> StoreTx<'s> for MemTx<'s> {
         's: 'a,
     {
         Ok(match self {
-            MemTx::Reader(rdr) => rdr.range(lower.to_vec()..upper.to_vec()).count(),
+            MemTx::Reader(rdr) => rdr.range(byte_range(lower, upper)).count(),
             MemTx::Writer(wtr, cache) => (CacheIterRaw {
-                change_iter: cache.range(lower.to_vec()..upper.to_vec()).fuse(),
-                db_iter: wtr.range(lower.to_vec()..upper.to_vec()).fuse(),
+                change_iter: cache.range(byte_range(lower, upper)).fuse(),
+                db_iter: wtr.range(byte_range(lower, upper)).fuse(),
                 change_cache: None,
                 db_cache: None,
             })

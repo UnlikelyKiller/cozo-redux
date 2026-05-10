@@ -8,6 +8,23 @@
 
 use std::collections::BTreeMap;
 use std::default::Default;
+use std::ops::Bound;
+
+struct ByteRange<'a>(&'a [u8], &'a [u8]);
+
+impl<'a> std::ops::RangeBounds<[u8]> for ByteRange<'a> {
+    fn start_bound(&self) -> Bound<&[u8]> {
+        Bound::Included(self.0)
+    }
+    fn end_bound(&self) -> Bound<&[u8]> {
+        Bound::Excluded(self.1)
+    }
+}
+
+#[inline(always)]
+fn byte_range<'a>(lower: &'a [u8], upper: &'a [u8]) -> ByteRange<'a> {
+    ByteRange(lower, upper)
+}
 
 use miette::Result;
 
@@ -90,7 +107,7 @@ impl<'s> StoreTx<'s> for TempTx {
     {
         Box::new(
             self.store
-                .range(lower.to_vec()..upper.to_vec())
+                .range(byte_range(lower, upper))
                 .map(|(k, v)| Ok(decode_tuple_from_kv(k, v, None))),
         )
     }
@@ -123,7 +140,7 @@ impl<'s> StoreTx<'s> for TempTx {
     {
         Box::new(
             self.store
-                .range(lower.to_vec()..upper.to_vec())
+                .range(byte_range(lower, upper))
                 .map(|(k, v)| Ok((k.clone(), v.clone()))),
         )
     }
@@ -132,7 +149,7 @@ impl<'s> StoreTx<'s> for TempTx {
     where
         's: 'a,
     {
-        Ok(self.store.range(lower.to_vec()..upper.to_vec()).count())
+        Ok(self.store.range(byte_range(lower, upper)).count())
     }
 
     fn total_scan<'a>(&'a self) -> Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>)>> + 'a>
