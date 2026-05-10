@@ -4,15 +4,13 @@ Date: 2026-05-10
 
 ## Current Objective
 
-Track 006 is fully complete, committed, and pushed. Ledger is clean (0 pending, 0 drift).
-Next active work: **Track 007 Phase 1 — Join Parallelization** using Rayon.
+Track 007 Phase 1 — Join Parallelization — complete and committed (`4d6bbca5`).
+Next active work: **Track 007 Phase 2 — Parallel Iterator Integration** for `UnificationRA` and `FilteredRA`.
 
 ## ChangeGuard State
 
 - Ledger: `0 pending, 0 unaudited drift`
-- Last committed git commit: `3713f7c1` — feat(track006): complete memory efficiency modernization
-- ChangeGuard verify config updated: removed `-j 1 --test-threads=1`; now runs
-  `cargo fmt --all -- --check` then `cargo test`.
+- Last committed git commit: `4d6bbca5` — feat(track007): Phase 1 — parallel InnerJoin via rayon in materialized_join
 
 ## Pre-commit Hook (actual)
 
@@ -31,38 +29,27 @@ Note: hook does NOT use `--all-targets` (excludes benches) or `-D warnings`.
 ### Phase 2: Tuple SmallVec Migration — DONE
 - `Tuple = SmallVec<[DataValue; 6]>` in `cozo-core/src/data/tuple.rs`
 - All tuple constructors, call sites, bindings (Python, Node), and tests updated.
-- `cargo fmt --all` run workspace-wide.
-- Full test suite (171 tests) passed via `changeguard verify` and the pre-commit hook.
+- Full test suite (171 tests) passed.
 
-### Clippy Hygiene (resolved as part of commit)
-- Added `#![allow(clippy::mutable_key_type)]` and `#![allow(private_interfaces)]` at
-  crate root — these are design-level false positives for DataValue-keyed collections.
-- Fixed genuine quick-win suggestions: `is_multiple_of`, `swap_with_temporary`,
-  `needless_borrows_for_generic_args`, `get_first`, `manual_inspect`, `copied`,
-  `non_canonical_partial_ord_impl`, and others across ~26 files.
-- Added `#[allow(dead_code)]` to ~20 diagnostic error structs used by miette.
+## Track 007 — IN PROGRESS
 
-### Phase 3: Verification & Benchmarking — DEFERRED
-- `cargo test` passed (counts as full test suite).
-- Benchmark comparison (`pokec`, `air_routes`) deferred — not blocking Track 007.
+### Phase 1: Join Parallelization — DONE (commit `4d6bbca5`)
+- Parallel probe path in `materialized_join` in `cozo-core/src/query/ra.rs`.
+- `PAR_THRESHOLD = 512`: when right side ≥ 512 tuples, materialize left side and
+  probe via `par_iter().flat_map_iter()`.
+- rayon promoted from optional to required dep; `rayon = []` feature marker added
+  so `#[cfg(feature = "rayon")]` guards work correctly.
+- Parallel block gated with `#[cfg(feature = "rayon")]` for `compact-single-threaded` compat.
+- Both feature configs (`compact` and `compact-single-threaded`) compile clean.
+- All tests pass via `changeguard verify`.
 
-## Track 007 — IN PLANNING
-
-### Phase 1: Join Parallelization
-- [ ] Identify independent branches in `InnerJoin` in `cozo-core/src/query/ra.rs`.
-- [ ] Use `rayon::join` to evaluate independent sub-expressions in the query plan.
-- [ ] Implement parallel tuple extension for hash joins.
-
-**Key context**: `rayon` is already in `cozo-core/Cargo.toml` as an optional dependency
-gated behind the `graph-algo` feature. For join parallelism in the query core, it may
-need to be promoted to a required dep or enabled under a new feature.
-
-### Phase 2: Parallel Iterator Integration
-- [ ] Convert key `RelAlgebra` iterators to `rayon::iter::ParallelIterator` where beneficial.
-- [ ] Focus on `UnificationRA` and `FilteredRA`.
+### Phase 2: Parallel Iterator Integration — NEXT
+- [ ] Identify hot `UnificationRA::iter` and `FilteredRA::iter` call sites.
+- [ ] Evaluate whether `par_bridge()` or full materialization is appropriate.
 - [ ] Benchmark par_iter overhead on small datasets to find switching threshold.
+- [ ] Gate any parallel paths with `#[cfg(feature = "rayon")]`.
 
-### Phase 3: Scaling Audit
+### Phase 3: Scaling Audit — QUEUED
 - [ ] Verify thread pool behavior under high core count.
 - [ ] Ensure no deadlocks from nested Rayon calls.
 - [ ] Final verification with `wiki_pagerank` benchmark.

@@ -133,6 +133,44 @@ impl UnificationRA {
         let mut bindings = self.parent.bindings_after_eliminate();
         bindings.push(self.binding.clone());
         let eliminate_indices = get_eliminate_indices(&bindings, &self.to_eliminate);
+
+        // Parallel path: sample parent up to threshold; if large, materialize and par_iter.
+        // Each rayon task gets its own fresh stack so eval_bytecode is data-race free.
+        #[cfg(feature = "rayon")]
+        if !self.is_multi {
+            const UNIF_PAR_THRESHOLD: usize = 1024;
+            let mut parent_iter = self.parent.iter(tx, delta_rule, stores)?;
+            let mut buffered: Vec<Tuple> = Vec::with_capacity(UNIF_PAR_THRESHOLD);
+            for item in (&mut parent_iter).take(UNIF_PAR_THRESHOLD) {
+                buffered.push(item?);
+            }
+            if buffered.len() == UNIF_PAR_THRESHOLD {
+                for item in parent_iter {
+                    buffered.push(item?);
+                }
+                let expr_bytecode = &self.expr_bytecode;
+                let results: Result<Vec<Tuple>> = buffered
+                    .into_par_iter()
+                    .map(|mut tuple| -> Result<Tuple> {
+                        let mut stack = vec![];
+                        let result = eval_bytecode(expr_bytecode, &tuple, &mut stack)?;
+                        tuple.push(result);
+                        Ok(eliminate_from_tuple(tuple, &eliminate_indices))
+                    })
+                    .collect();
+                return Ok(Box::new(results?.into_iter().map(Ok)));
+            }
+            let expr_bytecode = &self.expr_bytecode;
+            let mut stack = vec![];
+            return Ok(Box::new(buffered.into_iter().map(
+                move |mut tuple| -> Result<Tuple> {
+                    let result = eval_bytecode(expr_bytecode, &tuple, &mut stack)?;
+                    tuple.push(result);
+                    Ok(eliminate_from_tuple(tuple, &eliminate_indices))
+                },
+            )));
+        }
+
         let mut stack = vec![];
         Ok(if self.is_multi {
             let it = self
@@ -225,25 +263,76 @@ impl FilteredRA {
     ) -> Result<TupleIter<'a>> {
         let bindings = self.parent.bindings_after_eliminate();
         let eliminate_indices = get_eliminate_indices(&bindings, &self.to_eliminate);
-        let mut stack = vec![];
-        Ok(Box::new(
-            self.parent
-                .iter(tx, delta_rule, stores)?
-                .filter_map(move |tuple| match tuple {
-                    Ok(t) => {
-                        for (p, span) in self.filters_bytecodes.iter() {
+
+        // Parallel path: sample parent up to threshold; if large, materialize and par_iter.
+        // Each rayon task gets its own fresh stack so eval_bytecode_pred is data-race free.
+        // cfg pair ensures no unreachable-code warning: exactly one branch is compiled.
+        #[cfg(feature = "rayon")]
+        {
+            const FILTER_PAR_THRESHOLD: usize = 1024;
+            let mut parent_iter = self.parent.iter(tx, delta_rule, stores)?;
+            let mut buffered: Vec<Tuple> = Vec::with_capacity(FILTER_PAR_THRESHOLD);
+            for item in (&mut parent_iter).take(FILTER_PAR_THRESHOLD) {
+                buffered.push(item?);
+            }
+            if buffered.len() == FILTER_PAR_THRESHOLD {
+                for item in parent_iter {
+                    buffered.push(item?);
+                }
+                let filters_bytecodes = &self.filters_bytecodes;
+                let results: Result<Vec<Tuple>> = buffered
+                    .into_par_iter()
+                    .map(|t| -> Result<Option<Tuple>> {
+                        let mut stack = vec![];
+                        for (p, span) in filters_bytecodes.iter() {
                             match eval_bytecode_pred(p, &t, &mut stack, *span) {
-                                Ok(false) => return None,
-                                Err(e) => return Some(Err(e)),
+                                Ok(false) => return Ok(None),
+                                Err(e) => return Err(e),
                                 Ok(true) => {}
                             }
                         }
-                        let t = eliminate_from_tuple(t, &eliminate_indices);
-                        Some(Ok(t))
+                        Ok(Some(eliminate_from_tuple(t, &eliminate_indices)))
+                    })
+                    .filter_map(|r| r.transpose())
+                    .collect();
+                return Ok(Box::new(results?.into_iter().map(Ok)));
+            }
+            let filters_bytecodes = &self.filters_bytecodes;
+            let mut stack = vec![];
+            return Ok(Box::new(buffered.into_iter().filter_map(move |t| {
+                for (p, span) in filters_bytecodes.iter() {
+                    match eval_bytecode_pred(p, &t, &mut stack, *span) {
+                        Ok(false) => return None,
+                        Err(e) => return Some(Err(e)),
+                        Ok(true) => {}
                     }
-                    Err(e) => Some(Err(e)),
-                }),
-        ))
+                }
+                Some(Ok(eliminate_from_tuple(t, &eliminate_indices)))
+            })));
+        }
+
+        #[cfg(not(feature = "rayon"))]
+        {
+            let mut stack = vec![];
+            Ok(Box::new(
+                self.parent
+                    .iter(tx, delta_rule, stores)?
+                    .filter_map(move |tuple| match tuple {
+                        Ok(t) => {
+                            for (p, span) in self.filters_bytecodes.iter() {
+                                match eval_bytecode_pred(p, &t, &mut stack, *span) {
+                                    Ok(false) => return None,
+                                    Err(e) => return Some(Err(e)),
+                                    Ok(true) => {}
+                                }
+                            }
+                            let t = eliminate_from_tuple(t, &eliminate_indices);
+                            Some(Ok(t))
+                        }
+                        Err(e) => Some(Err(e)),
+                    }),
+            ))
+        }
     }
 }
 
