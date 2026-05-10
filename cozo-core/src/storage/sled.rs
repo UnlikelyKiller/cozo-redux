@@ -191,8 +191,8 @@ impl<'s> StoreTx<'s> for SledTx {
         's: 'a,
     {
         if let Some(changes) = &self.changes {
-            let change_iter = changes.range(lower.to_vec()..upper.to_vec()).fuse();
-            let db_iter = self.db.range(lower.to_vec()..upper.to_vec()).fuse();
+            let change_iter = changes.range(lower..upper).fuse();
+            let db_iter = self.db.range(lower..upper).fuse();
             Box::new(SledIter {
                 change_iter,
                 db_iter,
@@ -202,7 +202,7 @@ impl<'s> StoreTx<'s> for SledTx {
         } else {
             Box::new(
                 self.db
-                    .range(lower.to_vec()..upper.to_vec())
+                    .range(lower..upper)
                     .map(|d| d.into_diagnostic())
                     .map_ok(|(k, v)| decode_tuple_from_kv(&k, &v, None)),
             )
@@ -229,8 +229,8 @@ impl<'s> StoreTx<'s> for SledTx {
         's: 'a,
     {
         if let Some(changes) = &self.changes {
-            let change_iter = changes.range(lower.to_vec()..upper.to_vec()).fuse();
-            let db_iter = self.db.range(lower.to_vec()..upper.to_vec()).fuse();
+            let change_iter = changes.range(lower..upper).fuse();
+            let db_iter = self.db.range(lower..upper).fuse();
             Box::new(SledIterRaw {
                 change_iter,
                 db_iter,
@@ -240,7 +240,7 @@ impl<'s> StoreTx<'s> for SledTx {
         } else {
             Box::new(
                 self.db
-                    .range(lower.to_vec()..upper.to_vec())
+                    .range(lower..upper)
                     .map(|d| d.into_diagnostic())
                     .map_ok(|(k, v)| (k.to_vec(), v.to_vec())),
             )
@@ -252,8 +252,8 @@ impl<'s> StoreTx<'s> for SledTx {
         's: 'a,
     {
         Ok(if let Some(changes) = &self.changes {
-            let change_iter = changes.range(lower.to_vec()..upper.to_vec()).fuse();
-            let db_iter = self.db.range(lower.to_vec()..upper.to_vec()).fuse();
+            let change_iter = changes.range(lower..upper).fuse();
+            let db_iter = self.db.range(lower..upper).fuse();
             (SledIterRaw {
                 change_iter,
                 db_iter,
@@ -262,7 +262,7 @@ impl<'s> StoreTx<'s> for SledTx {
             })
             .count()
         } else {
-            self.db.range(lower.to_vec()..upper.to_vec()).count()
+            self.db.range(lower..upper).count()
         })
     }
 
