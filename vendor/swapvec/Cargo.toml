@@ -1,0 +1,20 @@
+[package]
+name = "swapvec"
+version = "0.3.0"
+edition = "2021"
+authors = ["Julian Büttner <git@julianbuettner.dev>"]
+license = "MIT"
+repository = "https://github.com/julianbuettner/swapvec"
+readme = "README.md"
+description = "A Vector swapping to disk after exceeding a given length"
+
+[dependencies]
+postcard = { version = "1.1.1", features = ["use-std"] }
+lz4_flex = "0.12.1"
+miniz_oxide = "0.8.0"
+serde = "1.0.160"
+tempfile = "3.5.0"
+
+[lib]
+name = "swapvec"
+crate-type = ["lib"]
