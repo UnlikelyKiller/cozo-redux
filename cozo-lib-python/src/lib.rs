@@ -114,7 +114,7 @@ fn options_to_py<'py>(
         let val = value_to_py(v, py);
         ret.set_item(k, val)?;
     }
-    Ok(ret.into())
+    Ok(ret)
 }
 
 fn json_to_py(val: serde_json::Value, py: Python<'_>) -> PyObject {

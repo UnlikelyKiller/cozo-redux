@@ -299,7 +299,7 @@ impl FilteredRA {
             }
             let filters_bytecodes = &self.filters_bytecodes;
             let mut stack = vec![];
-            return Ok(Box::new(buffered.into_iter().filter_map(move |t| {
+            Ok(Box::new(buffered.into_iter().filter_map(move |t| {
                 for (p, span) in filters_bytecodes.iter() {
                     match eval_bytecode_pred(p, &t, &mut stack, *span) {
                         Ok(false) => return None,
@@ -308,7 +308,7 @@ impl FilteredRA {
                     }
                 }
                 Some(Ok(eliminate_from_tuple(t, &eliminate_indices)))
-            })));
+            })))
         }
 
         #[cfg(not(feature = "rayon"))]

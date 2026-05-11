@@ -6,7 +6,7 @@ Master registry for development tracks and architectural upgrades.
 
 | Track ID | Status | Objective | Owner |
 | :--- | :--- | :--- | :--- |
-| **012** | `Planning` | Storage Scale — Vector quantization (Product Quantization) | Antigravity |
+| **012** | `In Progress` | Storage Scale — Vector quantization (Product Quantization) | Antigravity |
 
 ## Completed Tracks
 

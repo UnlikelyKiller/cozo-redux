@@ -1148,6 +1148,7 @@ impl<'a> SessionTx<'a> {
             index_filter: config.index_filter.clone(),
             extend_candidates: config.extend_candidates,
             keep_pruned_connections: config.keep_pruned_connections,
+            pq: None,
         };
 
         // populate index
@@ -1197,6 +1198,28 @@ impl<'a> SessionTx<'a> {
             .unwrap();
         self.store_tx.put(&new_encoded, &meta_val)?;
 
+        Ok(())
+    }
+
+    pub(crate) fn update_hnsw_manifest(
+        &mut self,
+        base_relation: &str,
+        index_name: &str,
+        manifest: HnswIndexManifest,
+    ) -> Result<()> {
+        let mut rel_handle = self.get_relation(base_relation, true)?;
+        if let Some((_, m)) = rel_handle.hnsw_indices.get_mut(index_name) {
+            *m = manifest;
+        } else {
+            bail!("HNSW index {} not found on {}", index_name, base_relation);
+        }
+        let new_encoded =
+            vec![DataValue::from(&rel_handle.name as &str)].encode_as_key(RelationId::SYSTEM);
+        let mut meta_val = vec![];
+        rel_handle
+            .serialize(&mut Serializer::new(&mut meta_val))
+            .unwrap();
+        self.store_tx.put(&new_encoded, &meta_val)?;
         Ok(())
     }
 

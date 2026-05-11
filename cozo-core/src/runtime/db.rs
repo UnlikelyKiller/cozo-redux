@@ -1447,6 +1447,33 @@ impl<'s, S: Storage<'s>> Db<S> {
                     vec![vec![DataValue::from(OK_STR)]],
                 ))
             }
+            SysOp::TrainPq {
+                base_relation,
+                index_name,
+                num_subspaces,
+                num_centroids,
+                num_samples,
+            } => {
+                if read_only {
+                    bail!("Cannot train PQ in read-only mode");
+                }
+                let lock = self
+                    .obtain_relation_locks(iter::once(base_relation))
+                    .pop()
+                    .unwrap();
+                let _guard = lock.write().unwrap();
+                tx.hnsw_train_pq(
+                    base_relation,
+                    index_name,
+                    *num_subspaces,
+                    *num_centroids,
+                    *num_samples,
+                )?;
+                Ok(NamedRows::new(
+                    vec![STATUS_STR.to_string()],
+                    vec![vec![DataValue::from(OK_STR)]],
+                ))
+            }
         }
     }
     fn run_sys_op(&'s self, op: SysOp, read_only: bool) -> Result<NamedRows> {

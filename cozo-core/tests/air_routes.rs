@@ -163,8 +163,8 @@ fn dfs() {
         .unwrap()
         .rows;
     assert_eq!(rows.len(), 1);
-    let row = rows.get(0).unwrap();
-    assert_eq!(row.get(0).unwrap().get_str().unwrap(), "PEK");
+    let row = rows.first().unwrap();
+    assert_eq!(row.first().unwrap().get_str().unwrap(), "PEK");
     assert_eq!(row.get(1).unwrap().get_str().unwrap(), "LHR");
     let path = row.get(2).unwrap().get_slice().unwrap();
     assert_eq!(path.first().unwrap().get_str().unwrap(), "PEK");
@@ -221,8 +221,8 @@ fn bfs() {
         .rows;
 
     assert_eq!(rows.len(), 1);
-    let row = rows.get(0).unwrap();
-    assert_eq!(row.get(0).unwrap().get_str().unwrap(), "PEK");
+    let row = rows.first().unwrap();
+    assert_eq!(row.first().unwrap().get_str().unwrap(), "PEK");
     assert_eq!(row.get(1).unwrap().get_str().unwrap(), "LHR");
     let path = row.get(2).unwrap().get_slice().unwrap();
     assert_eq!(path.first().unwrap().get_str().unwrap(), "PEK");
@@ -279,7 +279,7 @@ fn astar() {
 fn deg_centrality() {
     LazyLock::force(&TEST_DB);
     let deg_centrality = Instant::now();
-    TEST_DB
+    let _rows = TEST_DB
         .run_default(
             r#"
         deg_centrality[] <~ DegreeCentrality(*route[a, b]);
@@ -307,8 +307,7 @@ fn dijkstra() {
         ?[path] := res[src, dst, cost, path];
     "#,
         )
-        .unwrap()
-        .rows;
+        .unwrap();
 
     dbg!(dijkstra.elapsed());
 }
@@ -326,8 +325,7 @@ fn yen() {
         ?[] <~ KShortestPathYen(*route[], starting[], ending[], k: 5);
     "#,
         )
-        .unwrap()
-        .rows;
+        .unwrap();
 
     dbg!(yen.elapsed());
 }
@@ -1067,7 +1065,7 @@ fn mean_group_count() {
         .unwrap()
         .rows;
 
-    let v = rows.get(0).unwrap().get(0).unwrap().get_float().unwrap();
+    let v = rows.first().unwrap().first().unwrap().get_float().unwrap();
 
     assert!(v.abs_diff_eq(&14.451198630136986, 1e-8));
     dbg!(mean_group_count.elapsed());

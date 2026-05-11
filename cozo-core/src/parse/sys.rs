@@ -47,6 +47,13 @@ pub enum SysOp {
     CreateMinHashLshIndex(MinHashLshConfig),
     RemoveIndex(Symbol, Symbol),
     DescribeRelation(Symbol, SmartString<LazyCompact>),
+    TrainPq {
+        base_relation: SmartString<LazyCompact>,
+        index_name: SmartString<LazyCompact>,
+        num_subspaces: usize,
+        num_centroids: usize,
+        num_samples: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -631,6 +638,59 @@ pub(crate) fn parse_sys(
                         Symbol::new(rel.as_str(), rel.extract_span()),
                         Symbol::new(name.as_str(), name.extract_span()),
                     )
+                }
+                Rule::pq_train_op => {
+                    let mut inner = inner.into_inner();
+                    let rel = inner.next().unwrap();
+                    let name = inner.next().unwrap();
+                    let mut num_subspaces = 8usize;
+                    let mut num_centroids = 256usize;
+                    let mut num_samples = 10_000usize;
+                    for opt_pair in inner {
+                        let mut opt_inner = opt_pair.into_inner();
+                        let opt_name = opt_inner.next().unwrap();
+                        let opt_val = opt_inner.next().unwrap();
+                        let opt_val_str = opt_val.as_str();
+                        match opt_name.as_str() {
+                            "subspaces" => {
+                                let v = build_expr(opt_val, param_pool)?
+                                    .eval_to_const()?
+                                    .get_int()
+                                    .ok_or_else(|| miette!("Invalid subspaces: {}", opt_val_str))?;
+                                ensure!(v > 0, "subspaces must be > 0");
+                                num_subspaces = v as usize;
+                            }
+                            "centroids" => {
+                                let v = build_expr(opt_val, param_pool)?
+                                    .eval_to_const()?
+                                    .get_int()
+                                    .ok_or_else(|| miette!("Invalid centroids: {}", opt_val_str))?;
+                                ensure!(v > 0, "centroids must be > 0");
+                                num_centroids = v as usize;
+                            }
+                            "samples" => {
+                                let v = build_expr(opt_val, param_pool)?
+                                    .eval_to_const()?
+                                    .get_int()
+                                    .ok_or_else(|| miette!("Invalid samples: {}", opt_val_str))?;
+                                ensure!(v > 0, "samples must be > 0");
+                                num_samples = v as usize;
+                            }
+                            _ => {
+                                return Err(miette!(
+                                    "Invalid option for train_pq: {}",
+                                    opt_name.as_str()
+                                ))
+                            }
+                        }
+                    }
+                    SysOp::TrainPq {
+                        base_relation: SmartString::from(rel.as_str()),
+                        index_name: SmartString::from(name.as_str()),
+                        num_subspaces,
+                        num_centroids,
+                        num_samples,
+                    }
                 }
                 r => unreachable!("{:?}", r),
             }

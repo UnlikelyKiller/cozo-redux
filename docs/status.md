@@ -4,12 +4,12 @@ Date: 2026-05-11
 
 ## Current Objective
 
-Track 011 **COMPLETE**. Next: Track 012 (Vector Quantization / Product Quantization) or Track 009 Phase 3 (outer-loop parallelism, involves unsafe).
+Track 012 **IN PROGRESS** — Product Quantization (PQ) for HNSW.
 
 ## ChangeGuard State
 
-- Ledger: `0 pending, 0 unaudited drift`
-- Last committed git commit: `2919397a` — feat(track011): HNSW in-loop predicate filtering with biased traversal
+- Ledger: `1 pending` (Track 012)
+- Last committed git commit: `209473cb` — chore: convert swapvec submodule to regular files
 
 ## Pre-commit Hook (actual)
 
@@ -125,3 +125,38 @@ Note: hook does NOT use `--all-targets` (excludes benches) or `-D warnings`.
   `Vec<u8>` needed. Eliminates 18 heap allocations per transaction that uses sled ranges.
 - **Persistence backends**: Full 246-test suite passes with `compact,storage-rocksdb,requests`.
   RocksDB and SQLite backends show no regressions. Sled code verified to compile with `storage-sled`.
+
+## Track 012 — IN PROGRESS
+
+### Phase 1: Codebook Training & Storage — DONE
+- `PqConfig` and `PqCodebook` structs added to `HnswIndexManifest` with `#[serde(default)]`.
+- K-means Lloyd algorithm implemented in `cozo-core/src/runtime/hnsw.rs`.
+- `::hnsw train_pq rel:index { subspaces: N, centroids: M, samples: K }` grammar and parser added.
+- `SysOp::TrainPq` dispatched in `runtime/db.rs` with proper relation locking.
+- Codebook stored as special key in index relation (`hnsw_store_pq_codebook` / `hnsw_get_pq_codebook`).
+
+### Phase 2: Encoding on Insert — DONE
+- `encode_vector_pq` function quantizes F32 vectors to uint8 centroid indices per subspace.
+- `hnsw_train_pq` iterates all existing vectors and stores their PQ codes after training.
+- `hnsw_put_vector` encodes and stores PQ codes for new insertions when PQ config is active.
+- `hnsw_remove_vec` deletes PQ codes when a vector is removed.
+- PQ codes stored in index relation with sentinel key `i64::MAX - 1`.
+
+### Phase 3: Approximate Distance Search — DONE
+- `VectorCache` extended with `pq_codebook` and `pq_codes` fields.
+- `ensure_pq_code` loads PQ codes from index relation into cache.
+- `pq_dist` computes approximate distance via lookup tables.
+- `hnsw_knn` precomputes `dist_table[subspace][centroid]` for L2 when codebook is present.
+- `hnsw_search_level` uses PQ approximate distance for graph traversal when available; falls back to exact distance if codes are missing.
+- Construction-path `hnsw_search_level` calls pass `None` for PQ distance table (unchanged behavior).
+
+### Phase 4: Tests & Hygiene — DONE
+- `test_hnsw_pq_training_and_search`: creates 50 8-dim vectors, trains PQ with 2 subspaces / 4 centroids, verifies search returns 5 results.
+- All 179 tests pass; `cargo fmt` and `cargo clippy -- -D warnings` clean.
+- Fixed pre-existing clippy warnings in `query/ra.rs`, `cozo-lib-python/src/lib.rs`, and `cozo-core/tests/air_routes.rs`.
+
+### Known Limitations
+- PQ distance currently only supports L2 distance metric.
+- No explicit exact-distance re-ranking step; approximate distances used for both traversal and final results.
+- Full vectors are still loaded during search (codes are stored but full vectors are still accessed for fallback).
+- `hnsw_convert_to_pq` migration command not yet implemented.

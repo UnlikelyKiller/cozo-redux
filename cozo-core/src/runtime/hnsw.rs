@@ -16,9 +16,10 @@ use crate::runtime::relation::RelationHandle;
 use crate::runtime::transact::SessionTx;
 use crate::{DataValue, SourceSpan};
 use itertools::Itertools;
-use miette::{bail, miette, Result};
+use miette::{bail, ensure, miette, Result};
 use ordered_float::OrderedFloat;
 use priority_queue::PriorityQueue;
+use rand::seq::SliceRandom;
 use rand::Rng;
 use rustc_hash::{FxHashMap, FxHashSet};
 use smartstring::{LazyCompact, SmartString};
@@ -28,6 +29,20 @@ use std::cmp::{max, Reverse};
 use rayon::prelude::*;
 
 const HNSW_PAR_DIST_THRESHOLD: usize = 8;
+
+#[derive(Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
+pub(crate) struct PqConfig {
+    pub(crate) num_subspaces: usize,
+    pub(crate) num_centroids: usize,
+}
+
+#[derive(Debug, Clone, serde_derive::Serialize, serde_derive::Deserialize)]
+pub(crate) struct PqCodebook {
+    pub(crate) num_subspaces: usize,
+    pub(crate) num_centroids: usize,
+    pub(crate) sub_dim: usize,
+    pub(crate) centroids: Vec<f32>,
+}
 
 #[derive(Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
 pub(crate) struct HnswIndexManifest {
@@ -45,6 +60,8 @@ pub(crate) struct HnswIndexManifest {
     pub(crate) index_filter: Option<String>,
     pub(crate) extend_candidates: bool,
     pub(crate) keep_pruned_connections: bool,
+    #[serde(default)]
+    pub(crate) pq: Option<PqConfig>,
 }
 
 impl HnswIndexManifest {
@@ -59,9 +76,97 @@ impl HnswIndexManifest {
 
 type CompoundKey = (Tuple, usize, i32);
 
+fn kmeans_lloyd(data: &[Vec<f32>], k: usize, max_iter: usize) -> Vec<Vec<f32>> {
+    let n = data.len();
+    let d = data[0].len();
+    let mut rng = rand::thread_rng();
+    let mut idx_pool: Vec<usize> = (0..n).collect();
+    idx_pool.shuffle(&mut rng);
+    let mut centroids: Vec<Vec<f32>> = idx_pool[..k].iter().map(|&i| data[i].clone()).collect();
+    let mut assignments = vec![0usize; n];
+    for _ in 0..max_iter {
+        let mut changed = false;
+        for i in 0..n {
+            let mut best_c = 0;
+            let mut best_dist = f32::MAX;
+            for (c, centroid) in centroids.iter().enumerate() {
+                let dist: f32 = data[i]
+                    .iter()
+                    .zip(centroid.iter())
+                    .map(|(a, b)| (a - b) * (a - b))
+                    .sum();
+                if dist < best_dist {
+                    best_dist = dist;
+                    best_c = c;
+                }
+            }
+            if assignments[i] != best_c {
+                assignments[i] = best_c;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+        let mut sums = vec![vec![0.0f32; d]; k];
+        let mut counts = vec![0usize; k];
+        for i in 0..n {
+            let c = assignments[i];
+            counts[c] += 1;
+            for (j, &v) in data[i].iter().enumerate() {
+                sums[c][j] += v;
+            }
+        }
+        for c in 0..k {
+            if counts[c] > 0 {
+                for j in 0..d {
+                    centroids[c][j] = sums[c][j] / counts[c] as f32;
+                }
+            } else {
+                centroids[c] = data[rng.gen_range(0..n)].clone();
+            }
+        }
+    }
+    centroids
+}
+
+fn encode_vector_pq(vector: &Vector, codebook: &PqCodebook) -> Vec<u8> {
+    let Vector::F32(arr) = vector else {
+        panic!("encode_vector_pq only supports F32 vectors");
+    };
+    let dim = codebook.num_subspaces * codebook.sub_dim;
+    assert_eq!(arr.len(), dim);
+    let slice = arr.as_slice().unwrap();
+    let mut codes = Vec::with_capacity(codebook.num_subspaces);
+    for m in 0..codebook.num_subspaces {
+        let start = m * codebook.sub_dim;
+        let end = start + codebook.sub_dim;
+        let subvec = &slice[start..end];
+        let mut best_c = 0usize;
+        let mut best_dist = f32::MAX;
+        for c in 0..codebook.num_centroids {
+            let c_start = (m * codebook.num_centroids + c) * codebook.sub_dim;
+            let centroid = &codebook.centroids[c_start..c_start + codebook.sub_dim];
+            let dist: f32 = subvec
+                .iter()
+                .zip(centroid.iter())
+                .map(|(a, b)| (a - b) * (a - b))
+                .sum();
+            if dist < best_dist {
+                best_dist = dist;
+                best_c = c;
+            }
+        }
+        codes.push(best_c as u8);
+    }
+    codes
+}
+
 struct VectorCache {
     cache: FxHashMap<CompoundKey, Vector>,
     distance: HnswDistance,
+    pq_codebook: Option<PqCodebook>,
+    pq_codes: FxHashMap<CompoundKey, Vec<u8>>,
 }
 
 impl VectorCache {
@@ -154,6 +259,54 @@ impl VectorCache {
         }
         Ok(())
     }
+    fn ensure_pq_code(
+        &mut self,
+        key: &CompoundKey,
+        idx_handle: &RelationHandle,
+        tx: &SessionTx<'_>,
+    ) -> Result<()> {
+        if self.pq_codes.contains_key(key) {
+            return Ok(());
+        }
+        let mut pq_key = vec![DataValue::from(i64::MAX - 1)];
+        pq_key.extend_from_slice(&key.0);
+        pq_key.push(DataValue::from(key.1 as i64));
+        pq_key.push(DataValue::from(key.2 as i64));
+        pq_key.extend_from_slice(&key.0);
+        pq_key.push(DataValue::from(key.1 as i64));
+        pq_key.push(DataValue::from(key.2 as i64));
+        let key_bytes = idx_handle.encode_key_for_store(&pq_key, Default::default())?;
+        match tx.store_tx.get(&key_bytes, false)? {
+            None => {
+                self.pq_codes.insert(key.clone(), Vec::new());
+            }
+            Some(val_bytes) => {
+                let val_tuple: Vec<DataValue> =
+                    rmp_serde::from_slice(&val_bytes[ENCODED_KEY_MIN_LEN..])
+                        .map_err(|e| miette!("failed to deserialize PQ codes: {e}"))?;
+                match val_tuple.first() {
+                    Some(DataValue::Bytes(bytes)) => {
+                        self.pq_codes.insert(key.clone(), bytes.clone());
+                    }
+                    _ => {
+                        self.pq_codes.insert(key.clone(), Vec::new());
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    fn pq_dist(&self, dist_table: &[Vec<f64>], key: &CompoundKey) -> Option<f64> {
+        let codes = self.pq_codes.get(key)?;
+        if codes.is_empty() {
+            return None;
+        }
+        let mut sum = 0.0;
+        for (m, &code) in codes.iter().enumerate() {
+            sum += dist_table[m][code as usize];
+        }
+        Some(sum)
+    }
 }
 
 impl<'a> SessionTx<'a> {
@@ -233,6 +386,7 @@ impl<'a> SessionTx<'a> {
                     &mut found_nn,
                     vec_cache,
                     None,
+                    None,
                 )?;
             }
             let mut self_tuple_key = Vec::with_capacity(orig_table.metadata.keys.len() * 2 + 5);
@@ -261,6 +415,7 @@ impl<'a> SessionTx<'a> {
                     idx_table,
                     &mut found_nn,
                     vec_cache,
+                    None,
                     None,
                 )?;
                 // add bidirectional links to the nearest neighbors
@@ -379,6 +534,16 @@ impl<'a> SessionTx<'a> {
                 level,
                 0,
             )?;
+        }
+        // Store PQ codes if configured.
+        if manifest.pq.is_some() {
+            if let Some(codebook) =
+                self.hnsw_get_pq_codebook(orig_table.metadata.keys.len(), idx_table)?
+            {
+                let codes = encode_vector_pq(q, &codebook);
+                let compound_key = (tuple_key.to_vec().into(), idx, subidx);
+                self.hnsw_store_pq_codes(idx_table, &compound_key, &codes)?;
+            }
         }
         Ok(())
     }
@@ -555,6 +720,7 @@ impl<'a> SessionTx<'a> {
         found_nn: &mut PriorityQueue<CompoundKey, OrderedFloat<f64>>,
         vec_cache: &mut VectorCache,
         filter: Option<(&[Bytecode], SourceSpan)>,
+        pq_dist_table: Option<&[Vec<f64>]>,
     ) -> Result<()> {
         let mut visited: FxHashSet<CompoundKey> = FxHashSet::default();
         // min queue
@@ -611,21 +777,34 @@ impl<'a> SessionTx<'a> {
                 vec_cache.ensure_key(key, orig_table, self)?;
             }
 
+            // Load PQ codes if available.
+            if pq_dist_table.is_some() {
+                for key in &unvisited {
+                    vec_cache.ensure_pq_code(key, idx_table, self)?;
+                }
+            }
+
             // Compute distances. The immutable reborrow of vec_cache is safe here
             // because all ensure_key mutations for this batch are complete.
             let distances: Vec<f64> = {
                 let cache_ref: &VectorCache = &*vec_cache;
+                let pq_compute = |k: &CompoundKey| {
+                    if let Some(dt) = pq_dist_table {
+                        cache_ref
+                            .pq_dist(dt, k)
+                            .unwrap_or_else(|| cache_ref.v_dist(q, k))
+                    } else {
+                        cache_ref.v_dist(q, k)
+                    }
+                };
                 #[cfg(feature = "rayon")]
                 if unvisited.len() >= HNSW_PAR_DIST_THRESHOLD {
-                    unvisited
-                        .par_iter()
-                        .map(|k| cache_ref.v_dist(q, k))
-                        .collect()
+                    unvisited.par_iter().map(pq_compute).collect()
                 } else {
-                    unvisited.iter().map(|k| cache_ref.v_dist(q, k)).collect()
+                    unvisited.iter().map(pq_compute).collect()
                 }
                 #[cfg(not(feature = "rayon"))]
-                unvisited.iter().map(|k| cache_ref.v_dist(q, k)).collect()
+                unvisited.iter().map(pq_compute).collect()
             };
 
             // Update heaps sequentially.
@@ -803,6 +982,8 @@ impl<'a> SessionTx<'a> {
         let mut vec_cache = VectorCache {
             cache: FxHashMap::default(),
             distance: manifest.distance,
+            pq_codebook: None,
+            pq_codes: Default::default(),
         };
         for (vec, idx, sub) in extracted_vectors {
             self.hnsw_put_vector(
@@ -843,6 +1024,8 @@ impl<'a> SessionTx<'a> {
         let mut vec_cache = VectorCache {
             cache: FxHashMap::default(),
             distance: manifest.distance,
+            pq_codebook: None,
+            pq_codes: Default::default(),
         };
         for (tuple_key, idx, subidx) in candidates {
             self.hnsw_remove_vec(
@@ -1131,6 +1314,8 @@ impl<'a> SessionTx<'a> {
             }
         }
 
+        self.hnsw_remove_pq_codes(idx_table, &(tuple_key.to_vec().into(), idx, subidx))?;
+
         Ok(())
     }
     pub(crate) fn hnsw_knn(
@@ -1153,7 +1338,18 @@ impl<'a> SessionTx<'a> {
         let mut vec_cache = VectorCache {
             cache: Default::default(),
             distance: config.manifest.distance,
+            pq_codebook: None,
+            pq_codes: Default::default(),
         };
+
+        // Load PQ codebook if configured.
+        if config.manifest.pq.is_some() {
+            if let Some(codebook) = self
+                .hnsw_get_pq_codebook(config.base_handle.metadata.keys.len(), &config.idx_handle)?
+            {
+                vec_cache.pq_codebook = Some(codebook);
+            }
+        }
 
         let ep_res = config
             .idx_handle
@@ -1185,6 +1381,32 @@ impl<'a> SessionTx<'a> {
             let ep_distance = vec_cache.v_dist(&q, &ep_key);
             let mut found_nn = PriorityQueue::new();
             found_nn.push(ep_key, OrderedFloat(ep_distance));
+            let pq_dist_table: Option<Vec<Vec<f64>>> = if let Some(ref codebook) =
+                vec_cache.pq_codebook
+            {
+                let q_slice = match &q {
+                    Vector::F32(arr) => arr.as_slice().unwrap(),
+                    _ => bail!("PQ search only supported for F32 vectors"),
+                };
+                let mut table = vec![vec![0.0f64; codebook.num_centroids]; codebook.num_subspaces];
+                for (m, table_m) in table.iter_mut().enumerate() {
+                    let start = m * codebook.sub_dim;
+                    let q_sub = &q_slice[start..start + codebook.sub_dim];
+                    for (c, cell) in table_m.iter_mut().enumerate() {
+                        let c_start = (m * codebook.num_centroids + c) * codebook.sub_dim;
+                        let centroid = &codebook.centroids[c_start..c_start + codebook.sub_dim];
+                        let dist: f32 = q_sub
+                            .iter()
+                            .zip(centroid.iter())
+                            .map(|(a, b)| (a - b) * (a - b))
+                            .sum();
+                        *cell = dist as f64;
+                    }
+                }
+                Some(table)
+            } else {
+                None
+            };
             for current_level in bottom_level..0 {
                 self.hnsw_search_level(
                     &q,
@@ -1195,6 +1417,7 @@ impl<'a> SessionTx<'a> {
                     &mut found_nn,
                     &mut vec_cache,
                     None,
+                    pq_dist_table.as_deref(),
                 )?;
             }
             // Double ef when a filter is active to compensate for expected rejections.
@@ -1215,6 +1438,7 @@ impl<'a> SessionTx<'a> {
                 &mut found_nn,
                 &mut vec_cache,
                 filter_ref,
+                pq_dist_table.as_deref(),
             )?;
             if found_nn.is_empty() {
                 return Ok(vec![]);
@@ -1289,6 +1513,243 @@ impl<'a> SessionTx<'a> {
         } else {
             Ok(vec![])
         }
+    }
+
+    pub(crate) fn hnsw_train_pq(
+        &mut self,
+        base_relation: &str,
+        index_name: &str,
+        num_subspaces: usize,
+        num_centroids: usize,
+        num_samples: usize,
+    ) -> Result<()> {
+        let base_handle = self.get_relation(base_relation, false)?;
+        let (idx_handle, manifest) = base_handle
+            .hnsw_indices
+            .get(index_name)
+            .ok_or_else(|| miette!("HNSW index {} not found on {}", index_name, base_relation))?;
+        let idx_handle = idx_handle.clone();
+        let mut manifest = manifest.clone();
+        let key_len = base_handle.metadata.keys.len();
+        let field_idx = *manifest
+            .vec_fields
+            .first()
+            .ok_or_else(|| miette!("HNSW index has no vector fields"))?;
+
+        ensure!(
+            manifest.dtype == VecElementType::F32,
+            "PQ training only supported for F32 vectors"
+        );
+        let dim = manifest.vec_dim;
+        ensure!(
+            dim % num_subspaces == 0,
+            "vec_dim {} must be divisible by num_subspaces {}",
+            dim,
+            num_subspaces
+        );
+        ensure!(num_centroids >= 1, "num_centroids must be at least 1");
+
+        let sub_dim = dim / num_subspaces;
+
+        let mut all_samples: Vec<Vec<f32>> = base_handle
+            .scan_all(self)
+            .filter_map(|t| {
+                let tuple = t.ok()?;
+                match tuple.get(field_idx) {
+                    Some(DataValue::Vec(v)) => {
+                        if let Vector::F32(arr) = v.as_ref() {
+                            arr.as_slice().map(|s| s.to_vec())
+                        } else {
+                            None
+                        }
+                    }
+                    Some(DataValue::List(l)) => l.iter().find_map(|item| {
+                        if let DataValue::Vec(v) = item {
+                            if let Vector::F32(arr) = v.as_ref() {
+                                arr.as_slice().map(|s| s.to_vec())
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }),
+                    _ => None,
+                }
+            })
+            .collect();
+
+        if all_samples.len() > num_samples {
+            let mut rng = rand::thread_rng();
+            let n = all_samples.len();
+            for i in 0..num_samples.min(n) {
+                let j = rng.gen_range(i..n);
+                all_samples.swap(i, j);
+            }
+            all_samples.truncate(num_samples);
+        }
+
+        ensure!(
+            !all_samples.is_empty(),
+            "no vectors found in {} to train PQ",
+            base_relation
+        );
+        ensure!(
+            all_samples.len() >= num_centroids,
+            "need at least {} vectors to train {} centroids, got {}",
+            num_centroids,
+            num_centroids,
+            all_samples.len()
+        );
+
+        let mut centroids_flat: Vec<f32> =
+            Vec::with_capacity(num_subspaces * num_centroids * sub_dim);
+        for m in 0..num_subspaces {
+            let start = m * sub_dim;
+            let end = start + sub_dim;
+            let subspace_data: Vec<Vec<f32>> =
+                all_samples.iter().map(|v| v[start..end].to_vec()).collect();
+            let centroids = kmeans_lloyd(&subspace_data, num_centroids, 25);
+            for c in &centroids {
+                centroids_flat.extend_from_slice(c);
+            }
+        }
+
+        let codebook = PqCodebook {
+            num_subspaces,
+            num_centroids,
+            sub_dim,
+            centroids: centroids_flat,
+        };
+
+        self.hnsw_store_pq_codebook(key_len, &idx_handle, &codebook)?;
+
+        // Encode all existing vectors and store their PQ codes.
+        let all_tuples: Vec<Tuple> = base_handle.scan_all(self).filter_map(|r| r.ok()).collect();
+        for tuple in all_tuples {
+            let tuple_key = &tuple[..key_len];
+            if let Some(DataValue::Vec(v)) = tuple.get(field_idx) {
+                if let Vector::F32(_) = v.as_ref() {
+                    let codes = encode_vector_pq(v, &codebook);
+                    let compound_key = (tuple_key.to_vec().into(), field_idx, -1i32);
+                    self.hnsw_store_pq_codes(&idx_handle, &compound_key, &codes)?;
+                }
+            } else if let Some(DataValue::List(l)) = tuple.get(field_idx) {
+                for (sidx, item) in l.iter().enumerate() {
+                    if let DataValue::Vec(v) = item {
+                        if let Vector::F32(_) = v.as_ref() {
+                            let codes = encode_vector_pq(v, &codebook);
+                            let compound_key = (tuple_key.to_vec().into(), field_idx, sidx as i32);
+                            self.hnsw_store_pq_codes(&idx_handle, &compound_key, &codes)?;
+                        }
+                    }
+                }
+            }
+        }
+
+        manifest.pq = Some(PqConfig {
+            num_subspaces,
+            num_centroids,
+        });
+        self.update_hnsw_manifest(base_relation, index_name, manifest)?;
+        Ok(())
+    }
+
+    fn hnsw_store_pq_codebook(
+        &mut self,
+        orig_key_len: usize,
+        idx_handle: &RelationHandle,
+        codebook: &PqCodebook,
+    ) -> Result<()> {
+        let mut cb_key = vec![DataValue::from(i64::MAX)];
+        for _ in 0..2 {
+            for _ in 0..orig_key_len {
+                cb_key.push(DataValue::Null);
+            }
+            cb_key.push(DataValue::Null);
+            cb_key.push(DataValue::Null);
+        }
+        let codebook_bytes = rmp_serde::to_vec(codebook)
+            .map_err(|e| miette!("failed to serialize PQ codebook: {e}"))?;
+        let cb_val = [
+            DataValue::from(0.0),
+            DataValue::Bytes(codebook_bytes),
+            DataValue::from(false),
+        ];
+        let key_bytes = idx_handle.encode_key_for_store(&cb_key, Default::default())?;
+        let val_bytes = idx_handle.encode_val_only_for_store(&cb_val, Default::default())?;
+        self.store_tx.put(&key_bytes, &val_bytes)?;
+        Ok(())
+    }
+
+    pub(crate) fn hnsw_get_pq_codebook(
+        &self,
+        orig_key_len: usize,
+        idx_handle: &RelationHandle,
+    ) -> Result<Option<PqCodebook>> {
+        let mut cb_key = vec![DataValue::from(i64::MAX)];
+        for _ in 0..2 {
+            for _ in 0..orig_key_len {
+                cb_key.push(DataValue::Null);
+            }
+            cb_key.push(DataValue::Null);
+            cb_key.push(DataValue::Null);
+        }
+        let key_bytes = idx_handle.encode_key_for_store(&cb_key, Default::default())?;
+        match self.store_tx.get(&key_bytes, false)? {
+            None => Ok(None),
+            Some(val_bytes) => {
+                let val_tuple: Vec<DataValue> =
+                    rmp_serde::from_slice(&val_bytes[ENCODED_KEY_MIN_LEN..])
+                        .map_err(|e| miette!("failed to deserialize PQ codebook entry: {e}"))?;
+                match val_tuple.get(1) {
+                    Some(DataValue::Bytes(bytes)) => {
+                        let codebook = rmp_serde::from_slice(bytes)
+                            .map_err(|e| miette!("failed to deserialize PQ codebook: {e}"))?;
+                        Ok(Some(codebook))
+                    }
+                    _ => Ok(None),
+                }
+            }
+        }
+    }
+
+    fn hnsw_store_pq_codes(
+        &mut self,
+        idx_handle: &RelationHandle,
+        key: &CompoundKey,
+        codes: &[u8],
+    ) -> Result<()> {
+        let mut pq_key = vec![DataValue::from(i64::MAX - 1)];
+        pq_key.extend_from_slice(&key.0);
+        pq_key.push(DataValue::from(key.1 as i64));
+        pq_key.push(DataValue::from(key.2 as i64));
+        pq_key.extend_from_slice(&key.0);
+        pq_key.push(DataValue::from(key.1 as i64));
+        pq_key.push(DataValue::from(key.2 as i64));
+        let pq_val = [DataValue::Bytes(codes.to_vec())];
+        let key_bytes = idx_handle.encode_key_for_store(&pq_key, Default::default())?;
+        let val_bytes = idx_handle.encode_val_only_for_store(&pq_val, Default::default())?;
+        self.store_tx.put(&key_bytes, &val_bytes)?;
+        Ok(())
+    }
+
+    fn hnsw_remove_pq_codes(
+        &mut self,
+        idx_handle: &RelationHandle,
+        key: &CompoundKey,
+    ) -> Result<()> {
+        let mut pq_key = vec![DataValue::from(i64::MAX - 1)];
+        pq_key.extend_from_slice(&key.0);
+        pq_key.push(DataValue::from(key.1 as i64));
+        pq_key.push(DataValue::from(key.2 as i64));
+        pq_key.extend_from_slice(&key.0);
+        pq_key.push(DataValue::from(key.1 as i64));
+        pq_key.push(DataValue::from(key.2 as i64));
+        if let Ok(key_bytes) = idx_handle.encode_key_for_store(&pq_key, Default::default()) {
+            let _ = self.store_tx.del(&key_bytes);
+        }
+        Ok(())
     }
 }
 

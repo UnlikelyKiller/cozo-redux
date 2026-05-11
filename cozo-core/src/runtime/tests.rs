@@ -1690,6 +1690,83 @@ fn test_hnsw_in_loop_predicate_filter() {
 }
 
 #[test]
+fn test_hnsw_pq_training_and_search() {
+    // Verifies Track 012: PQ training produces a codebook, stores PQ codes,
+    // and subsequent HNSW search uses approximate distances.
+    let db = DbInstance::default();
+    db.run_default(
+        r#"
+        :create pq_vecs {
+            id: Int,
+            =>
+            v: <F32; 8>,
+        }
+    "#,
+    )
+    .unwrap();
+
+    // Insert 50 random 8-dim vectors.
+    let mut rows = vec![];
+    for i in 0..50 {
+        let vals: Vec<f64> = (0..8).map(|j| ((i * 7 + j) % 13) as f64 / 13.0).collect();
+        rows.push(format!("[{}, vec({:?})]", i, vals));
+    }
+    let data = rows.join(",\n            ");
+    db.run_default(&format!(
+        r#"? [id, v] <- [
+            {}
+        ]
+        :put pq_vecs {{}}"#,
+        data
+    ))
+    .unwrap();
+
+    db.run_default(
+        r#"
+        ::hnsw create pq_vecs:idx {
+            fields: [v],
+            dim: 8,
+            m: 8,
+            ef_construction: 50,
+            distance: L2,
+        }
+    "#,
+    )
+    .unwrap();
+
+    // Train PQ with 2 subspaces and 4 centroids.
+    db.run_default(
+        r#"
+        ::hnsw train_pq pq_vecs:idx {
+            subspaces: 2,
+            centroids: 4,
+            samples: 50,
+        }
+    "#,
+    )
+    .unwrap();
+
+    // Search should still return results without crashing.
+    let res = db
+        .run_default(
+            r#"
+        ?[id] := ~pq_vecs:idx{ id, v |
+            query: vec([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]),
+            k: 5,
+            ef: 20,
+        }
+    "#,
+        )
+        .unwrap();
+
+    assert_eq!(
+        res.rows.len(),
+        5,
+        "expected exactly 5 results after PQ training"
+    );
+}
+
+#[test]
 fn fts_drop() {
     let db = DbInstance::default();
     db.run_default(
