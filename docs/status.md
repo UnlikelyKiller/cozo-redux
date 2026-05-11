@@ -4,12 +4,12 @@ Date: 2026-05-11
 
 ## Current Objective
 
-Track 011 Phase 1 **IN PROGRESS** — HNSW in-loop predicate filtering with biased traversal and ef expansion.
+Track 011 **COMPLETE**. Next: Track 012 (Vector Quantization / Product Quantization) or Track 009 Phase 3 (outer-loop parallelism, involves unsafe).
 
 ## ChangeGuard State
 
-- Ledger: `1 pending` (tx `70e51bb7` — Track 011 in-loop filter)
-- Last committed git commit: `897dddb5` — feat(track010): HNSW graph repair on deletion
+- Ledger: `0 pending, 0 unaudited drift`
+- Last committed git commit: `2919397a` — feat(track011): HNSW in-loop predicate filtering with biased traversal
 
 ## Pre-commit Hook (actual)
 
@@ -76,13 +76,15 @@ Note: hook does NOT use `--all-targets` (excludes benches) or `-D warnings`.
   `Vec<u8>: Borrow<[u8]>` and `Vec<u8>: Borrow<Vec<u8>>`. A concrete struct with a single
   `impl RangeBounds<[u8]>` forces unique T=[u8] inference.
 
-## Track 011 — IN PROGRESS
+## Track 011 — COMPLETE (commit `2919397a`)
 
-### Phase 1: In-Loop Predicate Filter + ef Expansion — PENDING
-- Add `filter: Option<(&[Bytecode], SourceSpan)>` to `hnsw_search_level()`.
-- Separate `traversal_nn` frontier (ef-bounded) when filter active.
-- Non-passing nodes navigate graph but excluded from `found_nn`.
-- `hnsw_knn` doubles ef when filter present; passes `filter_ref` to level-0 search.
+### Phase 1: In-Loop Predicate Filter + ef Expansion — DONE
+- `hnsw_search_level` gains `filter: Option<(&[Bytecode], SourceSpan)>` parameter.
+- Separate `traversal_nn` PQ (ef-bounded) controls exploration bound when filter active.
+- Non-passing nodes expand neighbors for traversal but excluded from `found_nn` (biased traversal).
+- `hnsw_knn` doubles ef when filter present; passes filter to level-0 search only.
+- All construction-path callers pass `None` (unchanged behavior).
+- `test_hnsw_in_loop_predicate_filter`: 5 "a" (far) + 5 "b" (near) vectors; query near "b" with tag=="a" filter; verifies 5 results and all tagged "a".
 - File: `cozo-core/src/runtime/hnsw.rs`
 
 ## Track 010 — COMPLETE (commit `897dddb5`)
