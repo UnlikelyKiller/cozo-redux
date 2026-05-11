@@ -24,6 +24,11 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use smartstring::{LazyCompact, SmartString};
 use std::cmp::{max, Reverse};
 
+#[cfg(feature = "rayon")]
+use rayon::prelude::*;
+
+const HNSW_PAR_DIST_THRESHOLD: usize = 8;
+
 #[derive(Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
 pub(crate) struct HnswIndexManifest {
     pub(crate) base_relation: SmartString<LazyCompact>,
@@ -562,24 +567,51 @@ impl<'a> SessionTx<'a> {
             if candidate_dist > furtherest_dist {
                 break;
             }
-            // loop over each of the candidate's neighbors
-            for (neighbour_key, _) in
-                self.hnsw_get_neighbours(&candidate, cur_level, idx_table, false)?
-            {
-                if visited.contains(&neighbour_key) {
-                    continue;
+
+            // Collect unvisited neighbors for this candidate.
+            let unvisited: Vec<CompoundKey> = self
+                .hnsw_get_neighbours(&candidate, cur_level, idx_table, false)?
+                .filter(|(k, _)| !visited.contains(k))
+                .map(|(k, _)| k)
+                .collect();
+
+            // Mark all as visited before processing so cross-candidate dedup is
+            // preserved even if the same node appears in multiple neighbor lists.
+            visited.extend(unvisited.iter().cloned());
+
+            // Load vectors sequentially (requires store access via &mut vec_cache).
+            for key in &unvisited {
+                vec_cache.ensure_key(key, orig_table, self)?;
+            }
+
+            // Compute distances. The immutable reborrow of vec_cache is safe here
+            // because all ensure_key mutations for this batch are complete.
+            let distances: Vec<f64> = {
+                let cache_ref: &VectorCache = &*vec_cache;
+                #[cfg(feature = "rayon")]
+                if unvisited.len() >= HNSW_PAR_DIST_THRESHOLD {
+                    unvisited
+                        .par_iter()
+                        .map(|k| cache_ref.v_dist(q, k))
+                        .collect()
+                } else {
+                    unvisited.iter().map(|k| cache_ref.v_dist(q, k)).collect()
                 }
-                vec_cache.ensure_key(&neighbour_key, orig_table, self)?;
-                let neighbour_dist = vec_cache.v_dist(q, &neighbour_key);
-                let (_, OrderedFloat(cand_furtherest_dist)) = found_nn.peek().unwrap();
-                if found_nn.len() < ef || neighbour_dist < *cand_furtherest_dist {
-                    candidates.push(neighbour_key.clone(), Reverse(OrderedFloat(neighbour_dist)));
-                    found_nn.push(neighbour_key.clone(), OrderedFloat(neighbour_dist));
+                #[cfg(not(feature = "rayon"))]
+                unvisited.iter().map(|k| cache_ref.v_dist(q, k)).collect()
+            };
+
+            // Update heaps sequentially; re-query the running bound after each
+            // insertion to mirror the original per-neighbor bound updates.
+            for (key, dist) in unvisited.into_iter().zip(distances) {
+                let (_, OrderedFloat(cur_furthest)) = found_nn.peek().unwrap();
+                if found_nn.len() < ef || dist < *cur_furthest {
+                    candidates.push(key.clone(), Reverse(OrderedFloat(dist)));
+                    found_nn.push(key, OrderedFloat(dist));
                     if found_nn.len() > ef {
                         found_nn.pop();
                     }
                 }
-                visited.insert(neighbour_key);
             }
         }
 

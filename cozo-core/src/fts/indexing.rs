@@ -26,6 +26,11 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use thiserror::Error;
 
+#[cfg(feature = "rayon")]
+use rayon::prelude::*;
+
+const FTS_PAR_SORT_THRESHOLD: usize = 256;
+
 #[derive(Default)]
 pub(crate) struct FtsCache {
     total_n_cache: FxHashMap<SmartString<LazyCompact>, usize>,
@@ -257,6 +262,13 @@ impl<'a> SessionTx<'a> {
             0
         };
         let mut result: Vec<_> = self.fts_search_impl(&ast, config, n)?.into_iter().collect();
+        #[cfg(feature = "rayon")]
+        if result.len() >= FTS_PAR_SORT_THRESHOLD {
+            result.par_sort_by_key(|(_, score)| Reverse(OrderedFloat(*score)));
+        } else {
+            result.sort_by_key(|(_, score)| Reverse(OrderedFloat(*score)));
+        }
+        #[cfg(not(feature = "rayon"))]
         result.sort_by_key(|(_, score)| Reverse(OrderedFloat(*score)));
         if config.filter.is_none() {
             result.truncate(config.k);
