@@ -45,8 +45,14 @@ flamegraph*.svg
 # Agent and AI config
 .agents/
 .claude/
+.codex/
 .opencode/
 agents.md
 claude.md
+AGENTS.md
+CLAUDE.md
 .changeguard/
 .env
+
+# Conductor tracks (local planning)
+conductor/

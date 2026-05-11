@@ -1,21 +1,15 @@
+> **This is CozoDB-redux**, an actively maintained fork of [CozoDB](https://github.com/cozodb/cozo).
+> The upstream repository has not seen updates in several years. This fork preserves the original
+> MPL 2.0 license and includes performance improvements, bug fixes, and new features.
+> See [What changed in this fork](#what-changed-in-this-fork) for details.
+
 <img src="static/logo_c.png" width="200" height="175" alt="Logo">
 
-[![docs](https://img.shields.io/readthedocs/cozo/latest)](https://docs.cozodb.org/)
-[![cozo-node](https://img.shields.io/npm/v/cozo-node)](https://www.npmjs.com/package/cozo-node)
-[![npm (web)](https://img.shields.io/npm/v/cozo-lib-wasm?label=browser)](https://www.npmjs.com/package/cozo-lib-wasm)
-[![Crates.io](https://img.shields.io/crates/v/cozo)](https://crates.io/crates/cozo)
-[![docs.rs](https://img.shields.io/docsrs/cozo?label=docs.rs)](https://docs.rs/cozo)
-[![pypi](https://img.shields.io/pypi/v/pycozo)](https://pypi.org/project/pycozo/)
-[![java](https://img.shields.io/maven-central/v/io.github.cozodb/cozo_java?label=java)](https://mvnrepository.com/artifact/io.github.cozodb/cozo_java)
-[![clj](https://img.shields.io/maven-central/v/io.github.cozodb/cozo-clj?label=clj)](https://mvnrepository.com/artifact/io.github.cozodb/cozo-clj)
-[![android](https://img.shields.io/maven-central/v/io.github.cozodb/cozo_android?label=android)](https://mvnrepository.com/artifact/io.github.cozodb/cozo_android)
-[![pod](https://img.shields.io/cocoapods/v/CozoSwiftBridge)](https://github.com/cozodb/cozo/tree/main/cozo-lib-swift)
-[![Go](https://img.shields.io/github/v/release/cozodb/cozo-lib-go?label=go)](https://github.com/cozodb/cozo-lib-go)
-[![C](https://img.shields.io/github/v/release/cozodb/cozo?label=C)](https://github.com/cozodb/cozo/releases)
-[![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/cozodb/cozo/build.yml?branch=main)](https://github.com/cozodb/cozo/actions/workflows/build.yml)
-[![GitHub](https://img.shields.io/github/license/cozodb/cozo)](https://github.com/cozodb/cozo/blob/main/LICENSE.txt)
+[![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/UnlikelyKiller/cozo-redux/build.yml?branch=main)](https://github.com/UnlikelyKiller/cozo-redux/actions/workflows/build.yml)
+[![GitHub](https://img.shields.io/github/license/UnlikelyKiller/cozo-redux)](https://github.com/UnlikelyKiller/cozo-redux/blob/main/LICENSE.txt)
+[![GitHub last commit](https://img.shields.io/github/last-commit/UnlikelyKiller/cozo-redux)](https://github.com/UnlikelyKiller/cozo-redux/commits/main)
 
-# `CozoDB`
+# `CozoDB-redux`
 
 ### Table of contents
 
@@ -64,6 +58,21 @@ Highlights:
   implementation of the HNSW algorithm further.
 
 See [here](https://docs.cozodb.org/en/latest/releases/v0.6.html) for more details.
+
+## What changed in this fork
+
+This fork is actively maintained for production use. Key changes since upstream:
+
+* **Query Parallelization** — parallel joins, filters, and unification via `rayon` (Track 007).
+* **Memory Efficiency** — `DataValue` shrinking (≤ 32 bytes) and `SmallVec` tuples (Track 006).
+* **Storage Optimizations** — `TempStore` write-buffering, allocation-free range scans, sled range bound elimination (Track 008).
+* **HNSW Graph Repair** — automatic reconnection of neighbors on node deletion to prevent graph disconnection (Track 010).
+* **HNSW Predicate Filtering** — in-loop predicate filtering with biased traversal and `ef` expansion (Track 011).
+* **Product Quantization** — `::hnsw train_pq` for codebook training, vector encoding, and approximate distance search (Track 012).
+* **Search Performance** — parallel FTS sort and batched HNSW distance computation (Track 009).
+* **Dependency Modernization** — `lz4_flex`, `tokio`, `web-time`, `postcard`, and security tooling (Tracks 001–005).
+
+All changes are additive or internal optimizations. Existing CozoScript syntax, APIs, and storage formats remain compatible.
 
 ## Introduction
 
@@ -386,22 +395,23 @@ only Golang wraps the C API directly.
 
 ## Status of the project
 
-CozoDB is still very young, but we encourage you to try it out for your use case.
-Any feedback is welcome.
+CozoDB-redux is actively maintained. This fork exists because the upstream CozoDB project has not been updated in several years, and there are real production use-cases that depend on it.
 
-Versions before 1.0 do not promise syntax/API stability or storage compatibility.
+The project is production-ready for the features listed above, but retains the upstream disclaimer: versions before 1.0 do not promise syntax/API stability or storage compatibility across major releases.
+
+Issues, discussions, and pull requests are welcome at this repository.
 
 ## Links
 
-* [Project page](https://cozodb.org/)
-* [Documentation](https://docs.cozodb.org/en/latest/)
-* [Main repo](https://github.com/cozodb/cozo)
-* [Rust doc](https://docs.rs/cozo/)
-* [Issue tracker](https://github.com/cozodb/cozo/issues)
-* [Project discussions](https://github.com/cozodb/cozo/discussions)
+* [Original project page](https://cozodb.org/)
+* [Original documentation](https://docs.cozodb.org/en/latest/)
+* [Upstream repo](https://github.com/cozodb/cozo)
+* [This fork](https://github.com/UnlikelyKiller/cozo-redux)
+* [Issue tracker (this fork)](https://github.com/UnlikelyKiller/cozo-redux/issues)
+* [Project discussions (this fork)](https://github.com/UnlikelyKiller/cozo-redux/discussions)
 * [User reddit](https://www.reddit.com/r/cozodb/)
 
 ## Licensing and contributing
 
 This project is licensed under MPL-2.0 or later.
-See [here](CONTRIBUTING.md) if you are interested in contributing to the project.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute to this fork.
