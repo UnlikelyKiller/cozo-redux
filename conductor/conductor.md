@@ -4,7 +4,12 @@ Master registry for development tracks and architectural upgrades.
 
 ## Active Tracks
 
-None. All tracks complete.
+| Track ID | Status | Objective | Owner |
+| :--- | :--- | :--- | :--- |
+| **009** | `In Progress` | Search Performance — Parallel FTS sort + HNSW batch distance + outer-loop KNN | Antigravity |
+| **010** | `Planning` | HNSW Durability — Graph repair on deletion (re-link neighbors) | Antigravity |
+| **011** | `Planning` | HNSW Precision — In-loop predicate filtering with ef expansion | Antigravity |
+| **012** | `Planning` | Storage Scale — Vector quantization (Product Quantization) | Antigravity |
 
 ## Completed Tracks
 

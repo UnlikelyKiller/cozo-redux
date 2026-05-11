@@ -1,15 +1,15 @@
 # Status Report
 
-Date: 2026-05-10
+Date: 2026-05-11
 
 ## Current Objective
 
-Track 008 **COMPLETE**. All three phases done and pushed.
+Track 009 Phase 1+2 **COMPLETE**. Next: Track 009 Phase 3 (outer-loop parallelism) or Track 010 (HNSW graph repair).
 
 ## ChangeGuard State
 
 - Ledger: `0 pending, 0 unaudited drift`
-- Last committed git commit: `aca1eb32` — perf(track008): Phase 3 — eliminate to_vec() in sled.rs range bounds
+- Last committed git commit: `a262357c` — perf(track009): Phase 1+2 — parallel FTS sort and HNSW batch distance
 
 ## Pre-commit Hook (actual)
 
@@ -75,6 +75,28 @@ Note: hook does NOT use `--all-targets` (excludes benches) or `-D warnings`.
 - **Why not a tuple bound**: `(Bound<&[u8]>, Bound<&[u8]>)` triggers compiler ambiguity between
   `Vec<u8>: Borrow<[u8]>` and `Vec<u8>: Borrow<Vec<u8>>`. A concrete struct with a single
   `impl RangeBounds<[u8]>` forces unique T=[u8] inference.
+
+## Track 009 — IN PROGRESS
+
+### Phase 1: FTS Parallel Sort — DONE (commit `a262357c`)
+- `par_sort_by_key` in `fts_search()` when candidate count ≥ `FTS_PAR_SORT_THRESHOLD = 256`.
+- Pure computation on already-collected `(Tuple, f64)` scores — no store access required.
+- `#[cfg(feature = "rayon")]` guard; `compact-single-threaded` path unchanged.
+- File: `cozo-core/src/fts/indexing.rs`
+
+### Phase 2: HNSW Batch Distance Computation — DONE (commit `a262357c`)
+- Restructured `hnsw_search_level` inner loop to batch-process each candidate's neighbors.
+- **Sequential phase**: `ensure_key` for all unvisited neighbors (store access, requires `&mut VectorCache`).
+- **Parallel phase**: `par_iter().map(|k| cache_ref.v_dist(q, k))` when batch ≥ `HNSW_PAR_DIST_THRESHOLD = 8`.
+- Reborrow `&mut VectorCache` as `&VectorCache` is safe: all mutations complete before the parallel block.
+- `VectorCache` is `Sync` for reads (`FxHashMap<CompoundKey, Vector>` + `HnswDistance` enum, all `Sync`).
+- File: `cozo-core/src/runtime/hnsw.rs`
+
+### Phase 3: Outer-Loop Parallelism — PENDING
+- Requires `StoreTx: is_concurrent_read_safe()` to enable parallel KNN across parent tuples.
+- Highest impact (50 independent HNSW searches in parallel) but involves `unsafe` raw-ptr sharing.
+
+## Track 008 — COMPLETE
 
 ### Phase 3: Final Hygiene — DONE
 - **sled.rs**: Replaced all 9 `lower.to_vec()..upper.to_vec()` range bounds with `lower..upper`.
