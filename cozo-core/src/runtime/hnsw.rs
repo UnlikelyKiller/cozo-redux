@@ -183,7 +183,9 @@ impl<'a> SessionTx<'a> {
                     return Ok(());
                 }
             }
-            self.hnsw_remove_vec(tuple_key, idx, subidx, orig_table, idx_table)?;
+            self.hnsw_remove_vec(
+                tuple_key, idx, subidx, manifest, orig_table, idx_table, vec_cache,
+            )?;
         }
 
         let ep_res = idx_table
@@ -719,7 +721,7 @@ impl<'a> SessionTx<'a> {
     ) -> Result<bool> {
         if let Some(code) = filter {
             if !eval_bytecode_pred(code, tuple, stack, Default::default())? {
-                self.hnsw_remove(orig_table, idx_table, tuple)?;
+                self.hnsw_remove(orig_table, idx_table, manifest, tuple)?;
                 return Ok(false);
             }
         }
@@ -761,6 +763,7 @@ impl<'a> SessionTx<'a> {
         &mut self,
         orig_table: &RelationHandle,
         idx_table: &RelationHandle,
+        manifest: &HnswIndexManifest,
         tuple: &[DataValue],
     ) -> Result<()> {
         let mut prefix = vec![DataValue::from(0)];
@@ -778,9 +781,173 @@ impl<'a> SessionTx<'a> {
                 Err(_) => None,
             })
             .collect();
+        let mut vec_cache = VectorCache {
+            cache: FxHashMap::default(),
+            distance: manifest.distance,
+        };
         for (tuple_key, idx, subidx) in candidates {
-            self.hnsw_remove_vec(&tuple_key, idx, subidx, orig_table, idx_table)?;
+            self.hnsw_remove_vec(
+                &tuple_key,
+                idx,
+                subidx,
+                manifest,
+                orig_table,
+                idx_table,
+                &mut vec_cache,
+            )?;
         }
+        Ok(())
+    }
+    fn hnsw_repair_node(
+        &mut self,
+        target_key: &CompoundKey,
+        layer: i64,
+        manifest: &HnswIndexManifest,
+        orig_table: &RelationHandle,
+        idx_table: &RelationHandle,
+        vec_cache: &mut VectorCache,
+    ) -> Result<()> {
+        let m_max = if layer == 0 {
+            manifest.m_max0
+        } else {
+            manifest.m_max
+        };
+        let repair_threshold = max(1, m_max / 2);
+
+        let current_nbrs: Vec<(CompoundKey, f64)> = self
+            .hnsw_get_neighbours(target_key, layer, idx_table, false)?
+            .collect();
+
+        if current_nbrs.len() >= repair_threshold {
+            return Ok(());
+        }
+
+        vec_cache.ensure_key(target_key, orig_table, self)?;
+        let target_vec = vec_cache.get_key(target_key).clone();
+
+        // Candidate pool: current neighbors + their neighbors (1-hop expansion)
+        let mut candidates: PriorityQueue<CompoundKey, OrderedFloat<f64>> = PriorityQueue::new();
+        let current_set: FxHashSet<CompoundKey> =
+            current_nbrs.iter().map(|(k, _)| k.clone()).collect();
+
+        for (nk, dist) in &current_nbrs {
+            candidates.push(nk.clone(), OrderedFloat(*dist));
+        }
+
+        // Collect expansion keys first to avoid borrow conflicts
+        let mut expansion: Vec<CompoundKey> = vec![];
+        for (nk, _) in &current_nbrs {
+            for (nn, _) in self.hnsw_get_neighbours(nk, layer, idx_table, false)? {
+                if &nn != target_key && !current_set.contains(&nn) {
+                    expansion.push(nn);
+                }
+            }
+        }
+        for nn in expansion {
+            vec_cache.ensure_key(&nn, orig_table, self)?;
+            let d = vec_cache.v_dist(&target_vec, &nn);
+            candidates.push(nn, OrderedFloat(d));
+        }
+
+        if candidates.len() <= current_nbrs.len() {
+            return Ok(());
+        }
+
+        let selected = self.hnsw_select_neighbours_heuristic(
+            &target_vec,
+            &candidates,
+            m_max,
+            layer,
+            manifest,
+            idx_table,
+            orig_table,
+            vec_cache,
+        )?;
+
+        let new_degree = selected.len();
+
+        for (new_nbr, Reverse(OrderedFloat(dist))) in &selected {
+            if current_set.contains(new_nbr) {
+                continue;
+            }
+            // target → new_nbr
+            let mut out_key = vec![DataValue::from(layer)];
+            out_key.extend_from_slice(&target_key.0);
+            out_key.push(DataValue::from(target_key.1 as i64));
+            out_key.push(DataValue::from(target_key.2 as i64));
+            out_key.extend_from_slice(&new_nbr.0);
+            out_key.push(DataValue::from(new_nbr.1 as i64));
+            out_key.push(DataValue::from(new_nbr.2 as i64));
+            let edge_val = vec![
+                DataValue::from(*dist),
+                DataValue::Null,
+                DataValue::from(false),
+            ];
+            self.store_tx.put(
+                &idx_table.encode_key_for_store(&out_key, Default::default())?,
+                &idx_table.encode_val_only_for_store(&edge_val, Default::default())?,
+            )?;
+
+            // new_nbr → target
+            let mut in_key = vec![DataValue::from(layer)];
+            in_key.extend_from_slice(&new_nbr.0);
+            in_key.push(DataValue::from(new_nbr.1 as i64));
+            in_key.push(DataValue::from(new_nbr.2 as i64));
+            in_key.extend_from_slice(&target_key.0);
+            in_key.push(DataValue::from(target_key.1 as i64));
+            in_key.push(DataValue::from(target_key.2 as i64));
+            self.store_tx.put(
+                &idx_table.encode_key_for_store(&in_key, Default::default())?,
+                &idx_table.encode_val_only_for_store(&edge_val, Default::default())?,
+            )?;
+
+            // Update new_nbr's degree; shrink if over limit
+            let mut nbr_self_key = vec![DataValue::from(layer)];
+            for _ in 0..2 {
+                nbr_self_key.extend_from_slice(&new_nbr.0);
+                nbr_self_key.push(DataValue::from(new_nbr.1 as i64));
+                nbr_self_key.push(DataValue::from(new_nbr.2 as i64));
+            }
+            let nbr_self_key_bytes =
+                idx_table.encode_key_for_store(&nbr_self_key, Default::default())?;
+            if let Some(existing) = self.store_tx.get(&nbr_self_key_bytes, false)? {
+                let mut val: Vec<DataValue> =
+                    rmp_serde::from_slice(&existing[ENCODED_KEY_MIN_LEN..]).unwrap();
+                let new_nbr_degree = val[0].get_float().unwrap() as usize + 1;
+                let actual = if new_nbr_degree > m_max {
+                    self.hnsw_shrink_neighbour(
+                        new_nbr, m_max, layer, manifest, idx_table, orig_table, vec_cache,
+                    )?
+                } else {
+                    new_nbr_degree
+                };
+                val[0] = DataValue::from(actual as f64);
+                self.store_tx.put(
+                    &nbr_self_key_bytes,
+                    &idx_table.encode_val_only_for_store(&val, Default::default())?,
+                )?;
+            }
+        }
+
+        // Update target's degree
+        let mut target_self_key = vec![DataValue::from(layer)];
+        for _ in 0..2 {
+            target_self_key.extend_from_slice(&target_key.0);
+            target_self_key.push(DataValue::from(target_key.1 as i64));
+            target_self_key.push(DataValue::from(target_key.2 as i64));
+        }
+        let target_self_key_bytes =
+            idx_table.encode_key_for_store(&target_self_key, Default::default())?;
+        if let Some(existing) = self.store_tx.get(&target_self_key_bytes, false)? {
+            let mut val: Vec<DataValue> =
+                rmp_serde::from_slice(&existing[ENCODED_KEY_MIN_LEN..]).unwrap();
+            val[0] = DataValue::from(new_degree as f64);
+            self.store_tx.put(
+                &target_self_key_bytes,
+                &idx_table.encode_val_only_for_store(&val, Default::default())?,
+            )?;
+        }
+
         Ok(())
     }
     fn hnsw_remove_vec(
@@ -788,8 +955,10 @@ impl<'a> SessionTx<'a> {
         tuple_key: &[DataValue],
         idx: usize,
         subidx: i32,
+        manifest: &HnswIndexManifest,
         orig_table: &RelationHandle,
         idx_table: &RelationHandle,
+        vec_cache: &mut VectorCache,
     ) -> Result<()> {
         let compound_key = (tuple_key.to_vec().into(), idx, subidx);
         // Go down the layers and remove all the links
@@ -814,8 +983,6 @@ impl<'a> SessionTx<'a> {
                 .collect_vec();
             encountered_singletons |= neigbours.is_empty();
             for (neighbour_key, _) in neigbours {
-                // REMARK: this still has some probability of disconnecting the graph.
-                // Should we accept that as a consequence of the probabilistic nature of the algorithm?
                 let mut out_key = vec![DataValue::from(layer)];
                 out_key.extend_from_slice(tuple_key);
                 out_key.push(DataValue::from(idx as i64));
@@ -853,6 +1020,15 @@ impl<'a> SessionTx<'a> {
                 self.store_tx.put(
                     &idx_table.encode_key_for_store(&neighbour_self_key, Default::default())?,
                     &idx_table.encode_val_only_for_store(&neighbour_val, Default::default())?,
+                )?;
+                // Reconnect the former neighbor if it now has too few connections.
+                self.hnsw_repair_node(
+                    &neighbour_key,
+                    layer,
+                    manifest,
+                    orig_table,
+                    idx_table,
+                    vec_cache,
                 )?;
             }
         }
