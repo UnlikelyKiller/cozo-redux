@@ -6,9 +6,7 @@ Master registry for development tracks and architectural upgrades.
 
 | Track ID | Status | Objective | Owner |
 | :--- | :--- | :--- | :--- |
-| **009** | `In Progress` | Search Performance — Parallel FTS sort + HNSW batch distance + outer-loop KNN | Antigravity |
-| **010** | `Planning` | HNSW Durability — Graph repair on deletion (re-link neighbors) | Antigravity |
-| **011** | `Planning` | HNSW Precision — In-loop predicate filtering with ef expansion | Antigravity |
+| **011** | `In Progress` | HNSW Precision — In-loop predicate filtering with ef expansion | Antigravity |
 | **012** | `Planning` | Storage Scale — Vector quantization (Product Quantization) | Antigravity |
 
 ## Completed Tracks
@@ -23,6 +21,8 @@ Master registry for development tracks and architectural upgrades.
 | **006** | Memory Efficiency — DataValue shrinking + SmallVec Tuple |
 | **007** | Query Execution — parallel joins, filter, unification |
 | **008** | Storage Layer — TempStore write-buffer, ByteRange alloc elimination, sled range bounds |
+| **009** | Search Performance — Parallel FTS sort + HNSW batch distance |
+| **010** | HNSW Durability — Graph repair on deletion (re-link neighbors) |
 
 ---
-*Updated: 2026-05-10*
+*Updated: 2026-05-11*

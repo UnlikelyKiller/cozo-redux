@@ -4,12 +4,12 @@ Date: 2026-05-11
 
 ## Current Objective
 
-Track 009 Phase 1+2 **COMPLETE**. Next: Track 009 Phase 3 (outer-loop parallelism) or Track 010 (HNSW graph repair).
+Track 011 Phase 1 **IN PROGRESS** — HNSW in-loop predicate filtering with biased traversal and ef expansion.
 
 ## ChangeGuard State
 
-- Ledger: `0 pending, 0 unaudited drift`
-- Last committed git commit: `a262357c` — perf(track009): Phase 1+2 — parallel FTS sort and HNSW batch distance
+- Ledger: `1 pending` (tx `70e51bb7` — Track 011 in-loop filter)
+- Last committed git commit: `897dddb5` — feat(track010): HNSW graph repair on deletion
 
 ## Pre-commit Hook (actual)
 
@@ -55,7 +55,7 @@ Note: hook does NOT use `--all-targets` (excludes benches) or `-D warnings`.
   - `test_parallel_unification_correctness` — 2000 rows, bind doubled=n*2, verify all
   - `test_parallel_join_correctness` — 600-row right side, verify 50 join results
 
-## Track 008 — IN PROGRESS
+## Track 008 — COMPLETE
 
 ### Phase 1: TempStore Optimization — DONE (commit `65e9fe29`)
 - **Write-buffer pattern**: `pending: Vec<(Tuple, bool)>` accumulates O(1) pushes from `put()` / `put_with_skip()`.
@@ -76,7 +76,26 @@ Note: hook does NOT use `--all-targets` (excludes benches) or `-D warnings`.
   `Vec<u8>: Borrow<[u8]>` and `Vec<u8>: Borrow<Vec<u8>>`. A concrete struct with a single
   `impl RangeBounds<[u8]>` forces unique T=[u8] inference.
 
-## Track 009 — IN PROGRESS
+## Track 011 — IN PROGRESS
+
+### Phase 1: In-Loop Predicate Filter + ef Expansion — PENDING
+- Add `filter: Option<(&[Bytecode], SourceSpan)>` to `hnsw_search_level()`.
+- Separate `traversal_nn` frontier (ef-bounded) when filter active.
+- Non-passing nodes navigate graph but excluded from `found_nn`.
+- `hnsw_knn` doubles ef when filter present; passes `filter_ref` to level-0 search.
+- File: `cozo-core/src/runtime/hnsw.rs`
+
+## Track 010 — COMPLETE (commit `897dddb5`)
+
+### HNSW Graph Repair on Deletion — DONE
+- Added `hnsw_repair_node()`: after each deleted edge, reconnects former neighbors whose degree drops below `max(1, m_max/2)`.
+- Candidate pool: current neighbors + 1-hop expansion; `hnsw_select_neighbours_heuristic` selects best candidates.
+- `hnsw_remove` and `hnsw_remove_vec` extended with `manifest` and `vec_cache` parameters.
+- `stored.rs` updated to pass manifest (was `_`).
+- Resolved stale comment "this still has some probability of disconnecting the graph."
+- All 246 tests pass; both feature paths compile.
+
+## Track 009 — COMPLETE (commit `a262357c`)
 
 ### Phase 1: FTS Parallel Sort — DONE (commit `a262357c`)
 - `par_sort_by_key` in `fts_search()` when candidate count ≥ `FTS_PAR_SORT_THRESHOLD = 256`.

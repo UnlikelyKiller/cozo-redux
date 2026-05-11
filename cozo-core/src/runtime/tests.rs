@@ -1598,6 +1598,98 @@ fn hnsw_index() {
 }
 
 #[test]
+fn test_hnsw_in_loop_predicate_filter() {
+    // Verifies Track 011: in-loop predicate filtering returns exactly K results
+    // and all results satisfy the predicate, even when the K nearest global
+    // neighbors would all fail the filter.
+    let db = DbInstance::default();
+    db.run_default(
+        r#"
+        :create tagged_vecs {
+            id: Int,
+            =>
+            tag: String,
+            v: <F32; 4>,
+        }
+    "#,
+    )
+    .unwrap();
+    db.run_default(
+        r#"
+        ::hnsw create tagged_vecs:idx {
+            fields: [v],
+            dim: 4,
+            m: 8,
+            ef_construction: 50,
+            distance: L2,
+        }
+    "#,
+    )
+    .unwrap();
+
+    // "a" vectors — far from query (near [0,0,0,1]).
+    db.run_default(
+        r#"
+        ?[id, tag, v] <- [
+            [0, "a", vec([0.0, 0.0, 0.0, 1.0])],
+            [1, "a", vec([0.1, 0.0, 0.0, 0.9])],
+            [2, "a", vec([0.0, 0.1, 0.0, 0.9])],
+            [3, "a", vec([0.0, 0.0, 0.1, 0.9])],
+            [4, "a", vec([0.1, 0.1, 0.0, 0.9])]
+        ]
+        :put tagged_vecs {}
+    "#,
+    )
+    .unwrap();
+
+    // "b" vectors — close to query (near [1,0,0,0]).
+    // Without filtering, all top-5 global neighbors would be "b".
+    db.run_default(
+        r#"
+        ?[id, tag, v] <- [
+            [10, "b", vec([1.0, 0.0, 0.0, 0.0])],
+            [11, "b", vec([0.9, 0.1, 0.0, 0.0])],
+            [12, "b", vec([0.9, 0.0, 0.1, 0.0])],
+            [13, "b", vec([0.9, 0.0, 0.0, 0.1])],
+            [14, "b", vec([0.8, 0.1, 0.1, 0.0])]
+        ]
+        :put tagged_vecs {}
+    "#,
+    )
+    .unwrap();
+
+    // Search near the "b" cluster but filter to "a" only.
+    // Completeness: must return exactly 5 results (not 0 as before).
+    // Correctness: all returned results must be tagged "a".
+    let res = db
+        .run_default(
+            r#"
+        ?[id, tag] := ~tagged_vecs:idx{ id, tag, v |
+            query: vec([1.0, 0.0, 0.0, 0.0]),
+            k: 5,
+            ef: 20,
+            filter: tag == "a",
+        }
+    "#,
+        )
+        .unwrap();
+
+    let rows = res.rows;
+    assert_eq!(
+        rows.len(),
+        5,
+        "expected exactly 5 results with in-loop filter"
+    );
+    for row in &rows {
+        assert_eq!(
+            row[1],
+            DataValue::Str("a".into()),
+            "all results must be tagged 'a'"
+        );
+    }
+}
+
+#[test]
 fn fts_drop() {
     let db = DbInstance::default();
     db.run_default(

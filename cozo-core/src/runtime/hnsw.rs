@@ -232,6 +232,7 @@ impl<'a> SessionTx<'a> {
                     idx_table,
                     &mut found_nn,
                     vec_cache,
+                    None,
                 )?;
             }
             let mut self_tuple_key = Vec::with_capacity(orig_table.metadata.keys.len() * 2 + 5);
@@ -260,6 +261,7 @@ impl<'a> SessionTx<'a> {
                     idx_table,
                     &mut found_nn,
                     vec_cache,
+                    None,
                 )?;
                 // add bidirectional links to the nearest neighbors
                 let neighbours = self.hnsw_select_neighbours_heuristic(
@@ -552,6 +554,7 @@ impl<'a> SessionTx<'a> {
         idx_table: &RelationHandle,
         found_nn: &mut PriorityQueue<CompoundKey, OrderedFloat<f64>>,
         vec_cache: &mut VectorCache,
+        filter: Option<(&[Bytecode], SourceSpan)>,
     ) -> Result<()> {
         let mut visited: FxHashSet<CompoundKey> = FxHashSet::default();
         // min queue
@@ -563,10 +566,32 @@ impl<'a> SessionTx<'a> {
             candidates.push(item.0.clone(), Reverse(*item.1));
         }
 
+        // When a predicate filter is active, maintain a separate ef-bounded traversal
+        // frontier so nodes failing the predicate still guide graph navigation without
+        // distorting found_nn's worst-distance bound. Without a filter this is None
+        // and all logic reduces to the original single-heap behaviour with no overhead.
+        let mut traversal_nn: Option<PriorityQueue<CompoundKey, OrderedFloat<f64>>> =
+            if filter.is_some() {
+                let mut pq = PriorityQueue::new();
+                for item in found_nn.iter() {
+                    pq.push(item.0.clone(), *item.1);
+                }
+                Some(pq)
+            } else {
+                None
+            };
+
+        let mut pred_stack: Vec<DataValue> = vec![];
+
         while let Some((candidate, Reverse(OrderedFloat(candidate_dist)))) = candidates.pop() {
-            let (_, OrderedFloat(furtherest_dist)) = found_nn.peek().unwrap();
-            let furtherest_dist = *furtherest_dist;
-            if candidate_dist > furtherest_dist {
+            let furthest_dist = match traversal_nn.as_ref() {
+                Some(tn) => tn.peek().map(|(_, OrderedFloat(d))| *d).unwrap_or(f64::MAX),
+                None => {
+                    let (_, OrderedFloat(d)) = found_nn.peek().unwrap();
+                    *d
+                }
+            };
+            if candidate_dist > furthest_dist {
                 break;
             }
 
@@ -603,15 +628,49 @@ impl<'a> SessionTx<'a> {
                 unvisited.iter().map(|k| cache_ref.v_dist(q, k)).collect()
             };
 
-            // Update heaps sequentially; re-query the running bound after each
-            // insertion to mirror the original per-neighbor bound updates.
+            // Update heaps sequentially.
             for (key, dist) in unvisited.into_iter().zip(distances) {
-                let (_, OrderedFloat(cur_furthest)) = found_nn.peek().unwrap();
-                if found_nn.len() < ef || dist < *cur_furthest {
+                let (frontier_len, frontier_furthest) = match traversal_nn.as_ref() {
+                    Some(tn) => (
+                        tn.len(),
+                        tn.peek().map(|(_, OrderedFloat(d))| *d).unwrap_or(f64::MAX),
+                    ),
+                    None => {
+                        let (_, OrderedFloat(d)) = found_nn.peek().unwrap();
+                        (found_nn.len(), *d)
+                    }
+                };
+
+                if frontier_len < ef || dist < frontier_furthest {
                     candidates.push(key.clone(), Reverse(OrderedFloat(dist)));
-                    found_nn.push(key, OrderedFloat(dist));
-                    if found_nn.len() > ef {
-                        found_nn.pop();
+
+                    // Keep traversal frontier ef-bounded when filter is active.
+                    if let Some(ref mut tn) = traversal_nn {
+                        tn.push(key.clone(), OrderedFloat(dist));
+                        if tn.len() > ef {
+                            tn.pop();
+                        }
+                    }
+
+                    // Evaluate in-loop predicate on the base tuple. Nodes that fail
+                    // still expand their neighbors via candidates; they just don't
+                    // enter found_nn (biased traversal).
+                    let passes_filter = match filter {
+                        None => true,
+                        Some((code, span)) => match orig_table.get(self, &key.0)? {
+                            None => false,
+                            Some(tuple) => eval_bytecode_pred(code, &tuple, &mut pred_stack, span)?,
+                        },
+                    };
+
+                    if passes_filter {
+                        found_nn.push(key, OrderedFloat(dist));
+                        // Without filter: cap found_nn at ef (standard HNSW).
+                        // With filter: leave uncapped; caller truncates to k after
+                        // applying any remaining post-hoc checks on extra bindings.
+                        if traversal_nn.is_none() && found_nn.len() > ef {
+                            found_nn.pop();
+                        }
                     }
                 }
             }
@@ -1135,16 +1194,27 @@ impl<'a> SessionTx<'a> {
                     &config.idx_handle,
                     &mut found_nn,
                     &mut vec_cache,
+                    None,
                 )?;
             }
+            // Double ef when a filter is active to compensate for expected rejections.
+            let ef_actual = if filter_bytecode.is_some() {
+                config.ef * 2
+            } else {
+                config.ef
+            };
+            let filter_ref = filter_bytecode
+                .as_ref()
+                .map(|(code, span)| (code.as_slice(), *span));
             self.hnsw_search_level(
                 &q,
-                config.ef,
+                ef_actual,
                 0,
                 &config.base_handle,
                 &config.idx_handle,
                 &mut found_nn,
                 &mut vec_cache,
+                filter_ref,
             )?;
             if found_nn.is_empty() {
                 return Ok(vec![]);
