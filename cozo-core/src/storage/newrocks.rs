@@ -1,11 +1,10 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
-use log::info;
 use miette::{miette, IntoDiagnostic, Result, WrapErr};
 
-use rocksdb::{OptimisticTransactionDB, Options, WriteBatchWithTransaction, DB};
+use rocksdb::{OptimisticTransactionDB, Options, WriteBatchWithTransaction};
 
 use crate::data::tuple::{check_key_for_validity, Tuple};
 use crate::data::value::ValidityTs;
@@ -14,6 +13,7 @@ use crate::runtime::relation::{decode_tuple_from_kv, extend_tuple_from_v};
 use crate::storage::{Storage, StoreTx};
 use crate::Db;
 
+#[allow(dead_code)]
 const KEY_PREFIX_LEN: usize = 9;
 const CURRENT_STORAGE_VERSION: u64 = 3;
 
@@ -351,8 +351,9 @@ pub(crate) struct NewRocksDbIterator<'a> {
 impl<'a> Iterator for NewRocksDbIterator<'a> {
     type Item = Result<Tuple>;
 
+    #[allow(clippy::never_loop)]
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(result) = self.inner.next() {
+        if let Some(result) = self.inner.next() {
             match result {
                 Ok((k, v)) => {
                     if k.as_ref() >= self.upper_bound.as_slice() {
@@ -462,7 +463,7 @@ mod tests {
             crate::NamedRows {
                 headers: vec!["k".to_string(), "v".to_string()],
                 rows: (0..100)
-                    .map(|i| vec![DataValue::from(i), DataValue::from(i * 2)])
+                    .map(|i| vec![DataValue::from(i), DataValue::from(i * 2)].into())
                     .collect(),
                 next: None,
             },
@@ -496,12 +497,14 @@ mod tests {
                         DataValue::from(1),
                         DataValue::Validity(Validity::from((0, true))),
                         DataValue::from(100),
-                    ],
+                    ]
+                    .into(),
                     vec![
                         DataValue::from(1),
                         DataValue::Validity(Validity::from((1, true))),
                         DataValue::from(200),
-                    ],
+                    ]
+                    .into(),
                 ],
                 next: None,
             },
@@ -537,7 +540,7 @@ mod tests {
             crate::NamedRows {
                 headers: vec!["k".to_string(), "v".to_string()],
                 rows: (0..10)
-                    .map(|i| vec![DataValue::from(i), DataValue::from(i)])
+                    .map(|i| vec![DataValue::from(i), DataValue::from(i)].into())
                     .collect(),
                 next: None,
             },

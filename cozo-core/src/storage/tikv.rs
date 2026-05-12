@@ -12,7 +12,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 use itertools::Itertools;
 use miette::{miette, IntoDiagnostic, Result};
-use tikv_client::{RawClient, Transaction, TransactionClient};
+use tikv_client::{Transaction, TransactionClient};
 use tokio::runtime::Runtime;
 
 use crate::data::tuple::Tuple;
