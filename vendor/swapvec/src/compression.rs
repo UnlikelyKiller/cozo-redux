@@ -30,6 +30,7 @@ use crate::{swapvec::CompressionLevel, Compression};
 /// let compression = DummyCompression;
 /// assert_eq!(bytes, compression.decompress(compression.compress(bytes.clone())).unwrap());
 /// ```
+#[allow(clippy::result_unit_err)]
 pub trait Compress {
     /// Compress bytes blockwise. The compressed block
     /// will be put into `self.decompress()` later.

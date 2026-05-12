@@ -1,8 +1,4 @@
-use std::{
-    collections::VecDeque,
-    fmt::Debug,
-    fs::File,
-};
+use std::{collections::VecDeque, fmt::Debug, fs::File};
 
 use serde::{Deserialize, Serialize};
 
