@@ -6,7 +6,6 @@
  * You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use itertools::Itertools;
 use miette::Result;
 
 use crate::data::tuple::Tuple;
@@ -117,7 +116,7 @@ pub trait StoreTx<'s>: Sync {
         's: 'a,
     {
         let it = self.range_scan(lower, upper);
-        Box::new(it.map_ok(|(k, v)| decode_tuple_from_kv(&k, &v, None)))
+        Box::new(it.map(|res| res.and_then(|(k, v)| decode_tuple_from_kv(&k, &v, None))))
     }
 
     /// Scan on a range with a certain validity.

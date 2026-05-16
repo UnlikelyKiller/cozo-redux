@@ -108,7 +108,7 @@ impl<'s> StoreTx<'s> for TempTx {
         Box::new(
             self.store
                 .range(byte_range(lower, upper))
-                .map(|(k, v)| Ok(decode_tuple_from_kv(k, v, None))),
+                .map(|(k, v)| decode_tuple_from_kv(k, v, None)),
         )
     }
 
@@ -118,16 +118,13 @@ impl<'s> StoreTx<'s> for TempTx {
         upper: &[u8],
         valid_at: ValidityTs,
     ) -> Box<dyn Iterator<Item = Result<Tuple>> + 'a> {
-        Box::new(
-            SkipIterator {
-                inner: &self.store,
-                upper: upper.to_vec(),
-                valid_at,
-                next_bound: lower.to_vec(),
-                size_hint: None,
-            }
-            .map(Ok),
-        )
+        Box::new(SkipIterator {
+            inner: &self.store,
+            upper: upper.to_vec(),
+            valid_at,
+            next_bound: lower.to_vec(),
+            size_hint: None,
+        })
     }
 
     fn range_scan<'a>(

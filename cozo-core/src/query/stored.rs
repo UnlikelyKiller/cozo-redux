@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use itertools::Itertools;
-use miette::{bail, Diagnostic, IntoDiagnostic, Result, WrapErr};
+use miette::{bail, miette, Diagnostic, IntoDiagnostic, Result, WrapErr};
 use pest::Parser;
 use smartstring::{LazyCompact, SmartString};
 use thiserror::Error;
@@ -310,7 +310,7 @@ impl<'a> SessionTx<'a> {
                     let mut tup = extracted[0..relation_store.metadata.keys.len()]
                         .to_vec()
                         .into();
-                    extend_tuple_from_v(&mut tup, &existing);
+                    extend_tuple_from_v(&mut tup, &existing)?;
                     if has_indices && extracted.as_slice() != tup.as_slice() {
                         self.update_in_index(relation_store, &extracted, &tup)?;
                         self.del_in_fts(relation_store, &mut stack, &fts_lsh_processors, &tup)?;
@@ -597,7 +597,8 @@ impl<'a> SessionTx<'a> {
                         notice: "key to update does not exist".to_string()
                     })
                 }
-                Some(v) => rmp_serde::from_slice(&v[ENCODED_KEY_MIN_LEN..]).unwrap(),
+                Some(v) => rmp_serde::from_slice(&v[ENCODED_KEY_MIN_LEN..])
+                    .map_err(|e| miette!("Failed to deserialize original value: {e}"))?,
             };
             let mut old_kv = Vec::with_capacity(relation_store.arity());
             old_kv.extend_from_slice(&new_kv);
@@ -989,7 +990,7 @@ impl<'a> SessionTx<'a> {
             {
                 if let Some(existing) = self.store_tx.get(&key, false)? {
                     let mut tup = extracted.clone().into();
-                    extend_tuple_from_v(&mut tup, &existing);
+                    extend_tuple_from_v(&mut tup, &existing)?;
                     self.del_in_fts(relation_store, &mut stack, &fts_processors, &tup)?;
                     self.del_in_lsh(relation_store, &tup)?;
                     if has_indices {

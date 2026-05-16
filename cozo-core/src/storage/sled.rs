@@ -200,12 +200,10 @@ impl<'s> StoreTx<'s> for SledTx {
                 db_cache: None,
             })
         } else {
-            Box::new(
-                self.db
-                    .range(lower..upper)
-                    .map(|d| d.into_diagnostic())
-                    .map_ok(|(k, v)| decode_tuple_from_kv(&k, &v, None)),
-            )
+            Box::new(self.db.range(lower..upper).map(|d| {
+                d.into_diagnostic()
+                    .and_then(|(k, v)| decode_tuple_from_kv(&k, &v, None))
+            }))
         }
     }
 
@@ -385,12 +383,12 @@ impl SledIter {
                     if cv[0] == DEL_MARKER {
                         continue;
                     } else {
-                        return Ok(Some(decode_tuple_from_kv(&k, &cv[1..], None)));
+                        return Ok(Some(decode_tuple_from_kv(&k, &cv[1..], None)?));
                     }
                 }
                 (None, Some(_)) => {
                     let (k, v) = self.db_cache.take().unwrap();
-                    return Ok(Some(decode_tuple_from_kv(&k, &v, None)));
+                    return Ok(Some(decode_tuple_from_kv(&k, &v, None)?));
                 }
                 (Some((ck, _)), Some((dk, _))) => match ck.cmp(dk) {
                     Ordering::Less => {
@@ -398,12 +396,12 @@ impl SledIter {
                         if sv[0] == DEL_MARKER {
                             continue;
                         } else {
-                            return Ok(Some(decode_tuple_from_kv(&k, &sv[1..], None)));
+                            return Ok(Some(decode_tuple_from_kv(&k, &sv[1..], None)?));
                         }
                     }
                     Ordering::Greater => {
                         let (k, v) = self.db_cache.take().unwrap();
-                        return Ok(Some(decode_tuple_from_kv(&k, &v, None)));
+                        return Ok(Some(decode_tuple_from_kv(&k, &v, None)?));
                     }
                     Ordering::Equal => {
                         self.db_cache.take();

@@ -359,7 +359,7 @@ impl<'a> Iterator for NewRocksDbIterator<'a> {
                     if k.as_ref() >= self.upper_bound.as_slice() {
                         return None;
                     }
-                    return Some(Ok(decode_tuple_from_kv(&k, &v, None)));
+                    return decode_tuple_from_kv(&k, &v, None).map(Some).transpose();
                 }
                 Err(e) => return Some(Err(miette!("Iterator error: {}", e))),
             }
@@ -395,7 +395,9 @@ impl<'a> Iterator for NewRocksDbSkipIterator<'a> {
                         check_key_for_validity(k_slice.as_ref(), self.valid_at, None);
                     self.next_bound = nxt_bound;
                     if let Some(mut tup) = ret {
-                        extend_tuple_from_v(&mut tup, v_slice.as_ref());
+                        if let Err(e) = extend_tuple_from_v(&mut tup, v_slice.as_ref()) {
+                            return Some(Err(e));
+                        }
                         return Some(Ok(tup));
                     }
                 }

@@ -12,7 +12,7 @@ use std::sync::atomic::Ordering;
 
 use itertools::Itertools;
 use log::error;
-use miette::{bail, ensure, Diagnostic, IntoDiagnostic, Result};
+use miette::{bail, ensure, miette, Diagnostic, IntoDiagnostic, Result};
 use pest::Parser;
 use rmp_serde::Serializer;
 use serde::Serialize;
@@ -201,7 +201,7 @@ impl RelationHandle {
         if self.indices.is_empty() {
             return None;
         }
-        if *arg_uses.first().unwrap() == IndexPositionUse::Join {
+        if arg_uses.first() == Some(&IndexPositionUse::Join) {
             return None;
         }
         let mut max_prefix_len = 0;
@@ -218,7 +218,7 @@ impl RelationHandle {
             .collect_vec();
         let mut chosen = None;
         for (manifest, mapper) in self.indices.values() {
-            if validity_query && *mapper.last().unwrap() != self.metadata.keys.len() - 1 {
+            if validity_query && mapper.last() != Some(&(self.metadata.keys.len() - 1)) {
                 continue;
             }
 
@@ -282,7 +282,7 @@ impl RelationHandle {
         let mut ret = self.encode_key_prefix(len);
         tuple[start..]
             .serialize(&mut Serializer::new(&mut ret))
-            .unwrap();
+            .map_err(|e| miette!("failed to serialize value: {e}"))?;
         Ok(ret)
     }
     pub(crate) fn encode_val_only_for_store(
@@ -291,7 +291,9 @@ impl RelationHandle {
         _span: SourceSpan,
     ) -> Result<Vec<u8>> {
         let mut ret = self.encode_key_prefix(tuple.len());
-        tuple.serialize(&mut Serializer::new(&mut ret)).unwrap();
+        tuple
+            .serialize(&mut Serializer::new(&mut ret))
+            .map_err(|e| miette!("failed to serialize value: {e}"))?;
         Ok(ret)
     }
     pub(crate) fn ensure_compatible(
@@ -385,15 +387,15 @@ impl RelationHandle {
     pub(crate) fn get(&self, tx: &SessionTx<'_>, key: &[DataValue]) -> Result<Option<Tuple>> {
         let key_data = key.encode_as_key(self.id);
         if self.is_temp {
-            Ok(tx
-                .temp_store_tx
+            tx.temp_store_tx
                 .get(&key_data, false)?
-                .map(|val_data| decode_tuple_from_kv(&key_data, &val_data, Some(self.arity()))))
+                .map(|val_data| decode_tuple_from_kv(&key_data, &val_data, Some(self.arity())))
+                .transpose()
         } else {
-            Ok(tx
-                .store_tx
+            tx.store_tx
                 .get(&key_data, false)?
-                .map(|val_data| decode_tuple_from_kv(&key_data, &val_data, Some(self.arity()))))
+                .map(|val_data| decode_tuple_from_kv(&key_data, &val_data, Some(self.arity())))
+                .transpose()
         }
     }
 
@@ -404,15 +406,21 @@ impl RelationHandle {
     ) -> Result<Option<Tuple>> {
         let key_data = key.encode_as_key(self.id);
         if self.is_temp {
-            Ok(tx
-                .temp_store_tx
+            tx.temp_store_tx
                 .get(&key_data, false)?
-                .map(|val_data| rmp_serde::from_slice(&val_data[ENCODED_KEY_MIN_LEN..]).unwrap()))
+                .map(|val_data| {
+                    rmp_serde::from_slice(&val_data[ENCODED_KEY_MIN_LEN..])
+                        .map_err(|e| miette!("failed to deserialize value: {e}"))
+                })
+                .transpose()
         } else {
-            Ok(tx
-                .store_tx
+            tx.store_tx
                 .get(&key_data, false)?
-                .map(|val_data| rmp_serde::from_slice(&val_data[ENCODED_KEY_MIN_LEN..]).unwrap()))
+                .map(|val_data| {
+                    rmp_serde::from_slice(&val_data[ENCODED_KEY_MIN_LEN..])
+                        .map_err(|e| miette!("failed to deserialize value: {e}"))
+                })
+                .transpose()
         }
     }
 
@@ -517,17 +525,19 @@ const DEFAULT_SIZE_HINT: usize = 16;
 /// Decode tuple from key-value pairs. Used for customizing storage
 /// in trait [`StoreTx`](crate::StoreTx).
 #[inline]
-pub fn decode_tuple_from_kv(key: &[u8], val: &[u8], size_hint: Option<usize>) -> Tuple {
+pub fn decode_tuple_from_kv(key: &[u8], val: &[u8], size_hint: Option<usize>) -> Result<Tuple> {
     let mut tup = decode_tuple_from_key(key, size_hint.unwrap_or(DEFAULT_SIZE_HINT));
-    extend_tuple_from_v(&mut tup, val);
-    tup
+    extend_tuple_from_v(&mut tup, val)?;
+    Ok(tup)
 }
 
-pub fn extend_tuple_from_v(key: &mut Tuple, val: &[u8]) {
+pub fn extend_tuple_from_v(key: &mut Tuple, val: &[u8]) -> Result<()> {
     if !val.is_empty() {
-        let vals: Vec<DataValue> = rmp_serde::from_slice(&val[ENCODED_KEY_MIN_LEN..]).unwrap();
+        let vals: Vec<DataValue> = rmp_serde::from_slice(&val[ENCODED_KEY_MIN_LEN..])
+            .map_err(|e| miette!("failed to deserialize values: {e}"))?;
         key.extend(vals);
     }
+    Ok(())
 }
 
 #[derive(Debug, Error, Diagnostic)]
@@ -578,7 +588,7 @@ impl<'a> SessionTx<'a> {
         let mut meta_val = vec![];
         original
             .serialize(&mut Serializer::new(&mut meta_val).with_struct_map())
-            .unwrap();
+            .map_err(|e| miette!("failed to serialize metadata: {e}"))?;
         self.store_tx.put(&name_key, &meta_val)?;
 
         Ok(())
@@ -625,7 +635,7 @@ impl<'a> SessionTx<'a> {
         let name_key = vec![DataValue::Str(meta.name.clone())].encode_as_key(RelationId::SYSTEM);
         let mut meta_val = vec![];
         meta.serialize(&mut Serializer::new(&mut meta_val).with_struct_map())
-            .unwrap();
+            .map_err(|e| miette!("failed to serialize metadata: {e}"))?;
         let tuple = vec![DataValue::Null];
         let t_encoded = tuple.encode_as_key(RelationId::SYSTEM);
 
@@ -669,7 +679,7 @@ impl<'a> SessionTx<'a> {
         let name_key = vec![DataValue::Str(meta.name.clone())].encode_as_key(RelationId::SYSTEM);
         let mut meta_val = vec![];
         meta.serialize(&mut Serializer::new(&mut meta_val).with_struct_map())
-            .unwrap();
+            .map_err(|e| miette!("failed to serialize metadata: {e}"))?;
         if meta.is_temp {
             self.temp_store_tx.put(&name_key, &meta_val)?;
         } else {
@@ -730,7 +740,7 @@ impl<'a> SessionTx<'a> {
 
         let mut meta_val = vec![];
         meta.serialize(&mut Serializer::new(&mut meta_val).with_struct_map())
-            .unwrap();
+            .map_err(|e| miette!("failed to serialize metadata: {e}"))?;
         self.store_tx.put(&name_key, &meta_val)?;
 
         Ok(())
@@ -821,7 +831,7 @@ impl<'a> SessionTx<'a> {
         let parsed = CozoScriptParser::parse(Rule::expr, &manifest.extractor)
             .into_diagnostic()?
             .next()
-            .unwrap();
+            .ok_or_else(|| miette!("unexpected missing element"))?;
         let mut code_expr = build_expr(parsed, &Default::default())?;
         let binding_map = rel_handle.raw_binding_map();
         code_expr.fill_binding_indices(&binding_map)?;
@@ -860,7 +870,7 @@ impl<'a> SessionTx<'a> {
         let mut meta_val = vec![];
         rel_handle
             .serialize(&mut Serializer::new(&mut meta_val))
-            .unwrap();
+            .map_err(|e| miette!("failed to serialize metadata: {e}"))?;
         self.store_tx.put(&new_encoded, &meta_val)?;
 
         Ok(())
@@ -957,7 +967,7 @@ impl<'a> SessionTx<'a> {
         let parsed = CozoScriptParser::parse(Rule::expr, &manifest.extractor)
             .into_diagnostic()?
             .next()
-            .unwrap();
+            .ok_or_else(|| miette!("unexpected missing element"))?;
         let mut code_expr = build_expr(parsed, &Default::default())?;
         let binding_map = rel_handle.raw_binding_map();
         code_expr.fill_binding_indices(&binding_map)?;
@@ -1001,7 +1011,7 @@ impl<'a> SessionTx<'a> {
         let mut meta_val = vec![];
         rel_handle
             .serialize(&mut Serializer::new(&mut meta_val))
-            .unwrap();
+            .map_err(|e| miette!("failed to serialize metadata: {e}"))?;
         self.store_tx.put(&new_encoded, &meta_val)?;
 
         Ok(())
@@ -1160,7 +1170,7 @@ impl<'a> SessionTx<'a> {
             let parsed = CozoScriptParser::parse(Rule::expr, f_code)
                 .into_diagnostic()?
                 .next()
-                .unwrap();
+                .ok_or_else(|| miette!("unexpected missing element"))?;
             let mut code_expr = build_expr(parsed, &Default::default())?;
             let binding_map = rel_handle.raw_binding_map();
             code_expr.fill_binding_indices(&binding_map)?;
@@ -1195,7 +1205,7 @@ impl<'a> SessionTx<'a> {
         let mut meta_val = vec![];
         rel_handle
             .serialize(&mut Serializer::new(&mut meta_val))
-            .unwrap();
+            .map_err(|e| miette!("failed to serialize metadata: {e}"))?;
         self.store_tx.put(&new_encoded, &meta_val)?;
 
         Ok(())
@@ -1218,7 +1228,7 @@ impl<'a> SessionTx<'a> {
         let mut meta_val = vec![];
         rel_handle
             .serialize(&mut Serializer::new(&mut meta_val))
-            .unwrap();
+            .map_err(|e| miette!("failed to serialize metadata: {e}"))?;
         self.store_tx.put(&new_encoded, &meta_val)?;
         Ok(())
     }
@@ -1384,7 +1394,7 @@ impl<'a> SessionTx<'a> {
         let mut meta_val = vec![];
         rel_handle
             .serialize(&mut Serializer::new(&mut meta_val))
-            .unwrap();
+            .map_err(|e| miette!("failed to serialize metadata: {e}"))?;
         self.store_tx.put(&new_encoded, &meta_val)?;
 
         Ok(())
@@ -1426,7 +1436,8 @@ impl<'a> SessionTx<'a> {
         let new_encoded =
             vec![DataValue::from(&rel_name.name as &str)].encode_as_key(RelationId::SYSTEM);
         let mut meta_val = vec![];
-        rel.serialize(&mut Serializer::new(&mut meta_val)).unwrap();
+        rel.serialize(&mut Serializer::new(&mut meta_val))
+            .map_err(|e| miette!("Failed to serialize relation metadata: {e}"))?;
         self.store_tx.put(&new_encoded, &meta_val)?;
 
         Ok(to_clean)
@@ -1457,7 +1468,8 @@ impl<'a> SessionTx<'a> {
         rel.name = new.name.clone();
 
         let mut meta_val = vec![];
-        rel.serialize(&mut Serializer::new(&mut meta_val)).unwrap();
+        rel.serialize(&mut Serializer::new(&mut meta_val))
+            .map_err(|e| miette!("Failed to serialize relation metadata: {e}"))?;
         self.store_tx.del(&old_encoded)?;
         self.store_tx.put(&new_encoded, &meta_val)?;
 
@@ -1478,7 +1490,8 @@ impl<'a> SessionTx<'a> {
         rel.name = new.name;
 
         let mut meta_val = vec![];
-        rel.serialize(&mut Serializer::new(&mut meta_val)).unwrap();
+        rel.serialize(&mut Serializer::new(&mut meta_val))
+            .map_err(|e| miette!("Failed to serialize relation metadata: {e}"))?;
         self.temp_store_tx.del(&old_encoded)?;
         self.temp_store_tx.put(&new_encoded, &meta_val)?;
 

@@ -492,7 +492,7 @@ impl<'s, S: Storage<'s>> Db<S> {
             let mut rows = vec![];
             for data in tx.store_tx.range_scan(&start, &end) {
                 let (k, v) = data?;
-                let tuple = decode_tuple_from_kv(&k, &v, Some(size_hint));
+                let tuple = decode_tuple_from_kv(&k, &v, Some(size_hint))?;
                 rows.push(tuple);
             }
             let headers = cols.iter().map(|col| col.to_string()).collect_vec();
@@ -605,7 +605,7 @@ impl<'s, S: Storage<'s>> Db<S> {
                 if has_indices {
                     if let Some(existing) = tx.store_tx.get(&k_store, false)? {
                         let mut old = keys.clone().into();
-                        extend_tuple_from_v(&mut old, &existing);
+                        extend_tuple_from_v(&mut old, &existing)?;
                         if is_delete || old != row {
                             for (idx_rel, extractor) in handle.indices.values() {
                                 let idx_tup =

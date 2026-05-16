@@ -130,13 +130,20 @@ fn kmeans_lloyd(data: &[Vec<f32>], k: usize, max_iter: usize) -> Vec<Vec<f32>> {
     centroids
 }
 
-fn encode_vector_pq(vector: &Vector, codebook: &PqCodebook) -> Vec<u8> {
+fn encode_vector_pq(vector: &Vector, codebook: &PqCodebook) -> Result<Vec<u8>> {
     let Vector::F32(arr) = vector else {
-        panic!("encode_vector_pq only supports F32 vectors");
+        bail!("encode_vector_pq only supports F32 vectors");
     };
     let dim = codebook.num_subspaces * codebook.sub_dim;
-    assert_eq!(arr.len(), dim);
-    let slice = arr.as_slice().unwrap();
+    ensure!(
+        arr.len() == dim,
+        "vector dimension {} does not match codebook dimension {}",
+        arr.len(),
+        dim
+    );
+    let slice = arr
+        .as_slice()
+        .ok_or_else(|| miette!("Invalid vector slice"))?;
     let mut codes = Vec::with_capacity(codebook.num_subspaces);
     for m in 0..codebook.num_subspaces {
         let start = m * codebook.sub_dim;
@@ -159,7 +166,7 @@ fn encode_vector_pq(vector: &Vector, codebook: &PqCodebook) -> Vec<u8> {
         }
         codes.push(best_c as u8);
     }
-    codes
+    Ok(codes)
 }
 
 struct VectorCache {
@@ -173,61 +180,73 @@ impl VectorCache {
     fn insert(&mut self, k: CompoundKey, v: Vector) {
         self.cache.insert(k, v);
     }
-    fn dist(&self, v1: &Vector, v2: &Vector) -> f64 {
+    fn dist(&self, v1: &Vector, v2: &Vector) -> Result<f64> {
         match self.distance {
             HnswDistance::L2 => match (v1, v2) {
                 (Vector::F32(a), Vector::F32(b)) => {
                     let diff = a - b;
-                    diff.dot(&diff) as f64
+                    Ok(diff.dot(&diff) as f64)
                 }
                 (Vector::F64(a), Vector::F64(b)) => {
                     let diff = a - b;
-                    diff.dot(&diff)
+                    Ok(diff.dot(&diff))
                 }
-                _ => panic!("Cannot compute L2 distance between {:?} and {:?}", v1, v2),
+                _ => bail!("Cannot compute L2 distance between {:?} and {:?}", v1, v2),
             },
             HnswDistance::Cosine => match (v1, v2) {
                 (Vector::F32(a), Vector::F32(b)) => {
                     let a_norm = a.dot(a) as f64;
                     let b_norm = b.dot(b) as f64;
                     let dot = a.dot(b) as f64;
-                    1.0 - dot / (a_norm * b_norm).sqrt()
+                    Ok(1.0 - dot / (a_norm * b_norm).sqrt())
                 }
                 (Vector::F64(a), Vector::F64(b)) => {
                     let a_norm = a.dot(a);
                     let b_norm = b.dot(b);
                     let dot = a.dot(b);
-                    1.0 - dot / (a_norm * b_norm).sqrt()
+                    Ok(1.0 - dot / (a_norm * b_norm).sqrt())
                 }
-                _ => panic!(
+                _ => bail!(
                     "Cannot compute cosine distance between {:?} and {:?}",
-                    v1, v2
+                    v1,
+                    v2
                 ),
             },
             HnswDistance::InnerProduct => match (v1, v2) {
                 (Vector::F32(a), Vector::F32(b)) => {
                     let dot = a.dot(b);
-                    1. - dot as f64
+                    Ok(1. - dot as f64)
                 }
                 (Vector::F64(a), Vector::F64(b)) => {
                     let dot = a.dot(b);
-                    1. - dot
+                    Ok(1. - dot)
                 }
-                _ => panic!("Cannot compute inner product between {:?} and {:?}", v1, v2),
+                _ => bail!("Cannot compute inner product between {:?} and {:?}", v1, v2),
             },
         }
     }
-    fn v_dist(&self, v: &Vector, key: &CompoundKey) -> f64 {
-        let v2 = self.cache.get(key).unwrap();
+    fn v_dist(&self, v: &Vector, key: &CompoundKey) -> Result<f64> {
+        let v2 = self
+            .cache
+            .get(key)
+            .ok_or_else(|| miette!("Vector not found in cache: {:?}", key))?;
         self.dist(v, v2)
     }
-    fn k_dist(&self, k1: &CompoundKey, k2: &CompoundKey) -> f64 {
-        let v1 = self.cache.get(k1).unwrap();
-        let v2 = self.cache.get(k2).unwrap();
+    fn k_dist(&self, k1: &CompoundKey, k2: &CompoundKey) -> Result<f64> {
+        let v1 = self
+            .cache
+            .get(k1)
+            .ok_or_else(|| miette!("Vector not found in cache: {:?}", k1))?;
+        let v2 = self
+            .cache
+            .get(k2)
+            .ok_or_else(|| miette!("Vector not found in cache: {:?}", k2))?;
         self.dist(v1, v2)
     }
-    fn get_key(&self, key: &CompoundKey) -> &Vector {
-        self.cache.get(key).unwrap()
+    fn get_key(&self, key: &CompoundKey) -> Result<&Vector> {
+        self.cache
+            .get(key)
+            .ok_or_else(|| miette!("Vector not found in cache: {:?}", key))
     }
     fn ensure_key(
         &mut self,
@@ -254,7 +273,7 @@ impl VectorCache {
                         _ => bail!("Cannot interpret {} as vector", field),
                     }
                 }
-                None => bail!("Cannot find compound key for HNSW: {:?}", key),
+                None => bail!("Cannot find compound key for HNSW in relation {:?}: {:?}. Cache size: {}. Sample keys: {:?}", handle.id, key, self.cache.len(), self.cache.keys().take(3).collect::<Vec<_>>()),
             }
         }
         Ok(())
@@ -322,7 +341,8 @@ impl<'a> SessionTx<'a> {
         vec_cache: &mut VectorCache,
     ) -> Result<()> {
         let tuple_key = &tuple[..orig_table.metadata.keys.len()];
-        vec_cache.insert((tuple_key.to_vec().into(), idx, subidx), q.clone());
+        let ck = (tuple_key.to_vec().into(), idx, subidx);
+        vec_cache.insert(ck, q.clone());
         let hash = q.get_hash();
         let mut canary_tuple = vec![DataValue::from(0)];
         for _ in 0..2 {
@@ -352,13 +372,21 @@ impl<'a> SessionTx<'a> {
         if let Some(ep) = ep_res {
             let ep = ep?;
             // bottom level since we are going up
-            let bottom_level = ep[0].get_int().unwrap();
+            let bottom_level = ep[0]
+                .get_int()
+                .ok_or_else(|| miette!("Invalid entry point level"))?;
             let ep_t_key = ep[1..orig_table.metadata.keys.len() + 1].to_vec().into();
-            let ep_idx = ep[orig_table.metadata.keys.len() + 1].get_int().unwrap() as usize;
-            let ep_subidx = ep[orig_table.metadata.keys.len() + 2].get_int().unwrap() as i32;
+            let ep_idx = ep[orig_table.metadata.keys.len() + 1]
+                .get_int()
+                .ok_or_else(|| miette!("Invalid entry point index"))?
+                as usize;
+            let ep_subidx = ep[orig_table.metadata.keys.len() + 2]
+                .get_int()
+                .ok_or_else(|| miette!("Invalid entry point subindex"))?
+                as i32;
             let ep_key = (ep_t_key, ep_idx, ep_subidx);
             vec_cache.ensure_key(&ep_key, orig_table, self)?;
-            let ep_distance = vec_cache.v_dist(q, &ep_key);
+            let ep_distance = vec_cache.v_dist(q, &ep_key)?;
             // max queue
             let mut found_nn = PriorityQueue::new();
             found_nn.push(ep_key, OrderedFloat(ep_distance));
@@ -498,8 +526,12 @@ impl<'a> SessionTx<'a> {
                     };
                     let mut target_self_val: Vec<DataValue> =
                         rmp_serde::from_slice(&target_self_val_bytes[ENCODED_KEY_MIN_LEN..])
-                            .unwrap();
-                    let mut target_degree = target_self_val[0].get_float().unwrap() as usize + 1;
+                            .map_err(|e| miette!("Failed to deserialize neighbor metadata: {e}"))?;
+                    let mut target_degree = target_self_val[0]
+                        .get_float()
+                        .ok_or_else(|| miette!("Invalid neighbor degree"))?
+                        as usize
+                        + 1;
                     if target_degree > m_max {
                         // shrink links
                         target_degree = self.hnsw_shrink_neighbour(
@@ -540,7 +572,7 @@ impl<'a> SessionTx<'a> {
             if let Some(codebook) =
                 self.hnsw_get_pq_codebook(orig_table.metadata.keys.len(), idx_table)?
             {
-                let codes = encode_vector_pq(q, &codebook);
+                let codes = encode_vector_pq(q, &codebook)?;
                 let compound_key = (tuple_key.to_vec().into(), idx, subidx);
                 self.hnsw_store_pq_codes(idx_table, &compound_key, &codes)?;
             }
@@ -558,7 +590,7 @@ impl<'a> SessionTx<'a> {
         vec_cache: &mut VectorCache,
     ) -> Result<usize> {
         vec_cache.ensure_key(target_key, orig_table, self)?;
-        let vec = vec_cache.get_key(target_key).clone();
+        let vec = vec_cache.get_key(target_key)?.clone();
         let mut candidates = PriorityQueue::new();
         for (neighbour_key, neighbour_dist) in
             self.hnsw_get_neighbours(target_key, level, idx_table, false)?
@@ -623,8 +655,13 @@ impl<'a> SessionTx<'a> {
                     }
                 };
                 let old_existing_val: Vec<DataValue> =
-                    rmp_serde::from_slice(&old_existing_val[ENCODED_KEY_MIN_LEN..]).unwrap();
-                if old_existing_val[2].get_bool().unwrap() {
+                    rmp_serde::from_slice(&old_existing_val[ENCODED_KEY_MIN_LEN..])
+                        .map_err(|e| miette!("Failed to deserialize node metadata: {e}"))?;
+                if old_existing_val
+                    .get(2)
+                    .and_then(|v| v.get_bool())
+                    .unwrap_or(false)
+                {
                     self.store_tx.del(&old_key_bytes)?;
                 } else {
                     let old_val = vec![
@@ -675,7 +712,7 @@ impl<'a> SessionTx<'a> {
                 // Extend by neighbours
                 for (neighbour_key, _) in self.hnsw_get_neighbours(item, level, idx_table, false)? {
                     vec_cache.ensure_key(&neighbour_key, orig_table, self)?;
-                    let dist = vec_cache.v_dist(q, &neighbour_key);
+                    let dist = vec_cache.v_dist(q, &neighbour_key)?;
                     candidates.push(
                         (neighbour_key.0, neighbour_key.1, neighbour_key.2),
                         Reverse(OrderedFloat(dist)),
@@ -684,12 +721,14 @@ impl<'a> SessionTx<'a> {
             }
         }
         while !candidates.is_empty() && ret.len() < m {
-            let (cand_key, Reverse(OrderedFloat(cand_dist_to_q))) = candidates.pop().unwrap();
+            let (cand_key, Reverse(OrderedFloat(cand_dist_to_q))) = candidates
+                .pop()
+                .ok_or_else(|| miette!("Candidates heap empty"))?;
             let mut should_add = true;
             for (existing, _) in ret.iter() {
                 vec_cache.ensure_key(&cand_key, orig_table, self)?;
                 vec_cache.ensure_key(existing, orig_table, self)?;
-                let dist_to_existing = vec_cache.k_dist(existing, &cand_key);
+                let dist_to_existing = vec_cache.k_dist(existing, &cand_key)?;
                 if dist_to_existing < cand_dist_to_q {
                     should_add = false;
                     break;
@@ -703,8 +742,9 @@ impl<'a> SessionTx<'a> {
         }
         if manifest.keep_pruned_connections {
             while !discarded.is_empty() && ret.len() < m {
-                let (nearest_triple, Reverse(OrderedFloat(nearest_dist))) =
-                    discarded.pop().unwrap();
+                let (nearest_triple, Reverse(OrderedFloat(nearest_dist))) = discarded
+                    .pop()
+                    .ok_or_else(|| miette!("Discarded heap empty"))?;
                 ret.push(nearest_triple, Reverse(OrderedFloat(nearest_dist)));
             }
         }
@@ -753,7 +793,9 @@ impl<'a> SessionTx<'a> {
             let furthest_dist = match traversal_nn.as_ref() {
                 Some(tn) => tn.peek().map(|(_, OrderedFloat(d))| *d).unwrap_or(f64::MAX),
                 None => {
-                    let (_, OrderedFloat(d)) = found_nn.peek().unwrap();
+                    let (_, OrderedFloat(d)) = found_nn
+                        .peek()
+                        .ok_or_else(|| miette!("Search heap empty"))?;
                     *d
                 }
             };
@@ -790,21 +832,31 @@ impl<'a> SessionTx<'a> {
                 let cache_ref: &VectorCache = &*vec_cache;
                 let pq_compute = |k: &CompoundKey| {
                     if let Some(dt) = pq_dist_table {
-                        cache_ref
-                            .pq_dist(dt, k)
-                            .unwrap_or_else(|| cache_ref.v_dist(q, k))
+                        match cache_ref.pq_dist(dt, k) {
+                            Some(d) => Ok(d),
+                            None => cache_ref.v_dist(q, k),
+                        }
                     } else {
                         cache_ref.v_dist(q, k)
                     }
                 };
                 #[cfg(feature = "rayon")]
                 if unvisited.len() >= HNSW_PAR_DIST_THRESHOLD {
-                    unvisited.par_iter().map(pq_compute).collect()
+                    unvisited
+                        .par_iter()
+                        .map(pq_compute)
+                        .collect::<Result<Vec<_>>>()?
                 } else {
-                    unvisited.iter().map(pq_compute).collect()
+                    unvisited
+                        .iter()
+                        .map(pq_compute)
+                        .collect::<Result<Vec<_>>>()?
                 }
                 #[cfg(not(feature = "rayon"))]
-                unvisited.iter().map(pq_compute).collect()
+                unvisited
+                    .iter()
+                    .map(pq_compute)
+                    .collect::<Result<Vec<_>>>()?
             };
 
             // Update heaps sequentially.
@@ -815,7 +867,9 @@ impl<'a> SessionTx<'a> {
                         tn.peek().map(|(_, OrderedFloat(d))| *d).unwrap_or(f64::MAX),
                     ),
                     None => {
-                        let (_, OrderedFloat(d)) = found_nn.peek().unwrap();
+                        let (_, OrderedFloat(d)) = found_nn
+                            .peek()
+                            .ok_or_else(|| miette!("Search heap empty"))?;
                         (found_nn.len(), *d)
                     }
                 };
@@ -873,10 +927,25 @@ impl<'a> SessionTx<'a> {
         Ok(idx_handle
             .scan_prefix(self, &start_tuple)
             .filter_map(move |res| {
-                let tuple = res.unwrap();
+                let tuple = res.ok()?;
 
-                let key_idx = tuple[2 * key_len + 3].get_int().unwrap() as usize;
-                let key_subidx = tuple[2 * key_len + 4].get_int().unwrap() as i32;
+                // Defensive check: ensure the tuple has at least the key parts.
+                if tuple.len() < 2 * key_len + 5 {
+                    log::warn!("HNSW index row too short: {} fields. Expected at least {}.", tuple.len(), 2 * key_len + 5);
+                    return None;
+                }
+
+                // If it's a self-link or missing values, return None.
+                if tuple.len() < 2 * key_len + 8 {
+                    if tuple.len() == 2 * key_len + 5 {
+                        return None;
+                    }
+                    log::warn!("HNSW index row has unexpected length {}. Expected {}. This may indicate a stale index or dimension mismatch.", tuple.len(), 2 * key_len + 8);
+                    return None;
+                }
+
+                let key_idx = tuple[2 * key_len + 3].get_int()? as usize;
+                let key_subidx = tuple[2 * key_len + 4].get_int()? as i32;
                 let key_tup: Tuple = tuple[key_len + 3..2 * key_len + 3].to_vec().into();
                 if key_tup == cand_key.0 {
                     None
@@ -884,16 +953,16 @@ impl<'a> SessionTx<'a> {
                     if include_deleted {
                         return Some((
                             (key_tup, key_idx, key_subidx),
-                            tuple[2 * key_len + 5].get_float().unwrap(),
+                            tuple[2 * key_len + 5].get_float()?,
                         ));
                     }
-                    let is_deleted = tuple[2 * key_len + 7].get_bool().unwrap();
+                    let is_deleted = tuple[2 * key_len + 7].get_bool()?;
                     if is_deleted {
                         None
                     } else {
                         Some((
                             (key_tup, key_idx, key_subidx),
-                            tuple[2 * key_len + 5].get_float().unwrap(),
+                            tuple[2 * key_len + 5].get_float()?,
                         ))
                     }
                 }
@@ -914,7 +983,12 @@ impl<'a> SessionTx<'a> {
         let mut canary_key = vec![DataValue::from(1)];
         for _ in 0..2 {
             for i in 0..orig_table.metadata.keys.len() {
-                target_key.push(tuple.get(i).unwrap().clone());
+                target_key.push(
+                    tuple
+                        .get(i)
+                        .ok_or_else(|| miette!("Base relation row too short"))?
+                        .clone(),
+                );
                 canary_key.push(DataValue::Null);
             }
             target_key.push(DataValue::from(idx as i64));
@@ -965,7 +1039,9 @@ impl<'a> SessionTx<'a> {
         }
         let mut extracted_vectors = vec![];
         for idx in &manifest.vec_fields {
-            let val = tuple.get(*idx).unwrap();
+            let val = tuple
+                .get(*idx)
+                .ok_or_else(|| miette!("Base relation row too short"))?;
             if let DataValue::Vec(v) = val {
                 extracted_vectors.push((v, *idx, -1));
             } else if let DataValue::List(l) = val {
@@ -1011,13 +1087,17 @@ impl<'a> SessionTx<'a> {
         let candidates: FxHashSet<CompoundKey> = idx_table
             .scan_prefix(self, &prefix)
             .filter_map(|t| match t {
-                Ok(t) => Some({
-                    (
-                        t[1..orig_table.metadata.keys.len() + 1].to_vec().into(),
-                        t[orig_table.metadata.keys.len() + 1].get_int().unwrap() as usize,
-                        t[orig_table.metadata.keys.len() + 2].get_int().unwrap() as i32,
-                    )
-                }),
+                Ok(t) => {
+                    let k_len = orig_table.metadata.keys.len();
+                    if t.len() < k_len + 3 {
+                        return None;
+                    }
+                    Some((
+                        t[1..k_len + 1].to_vec().into(),
+                        t[k_len + 1].get_int()? as usize,
+                        t[k_len + 2].get_int()? as i32,
+                    ))
+                }
                 Err(_) => None,
             })
             .collect();
@@ -1065,7 +1145,7 @@ impl<'a> SessionTx<'a> {
         }
 
         vec_cache.ensure_key(target_key, orig_table, self)?;
-        let target_vec = vec_cache.get_key(target_key).clone();
+        let target_vec = vec_cache.get_key(target_key)?.clone();
 
         // Candidate pool: current neighbors + their neighbors (1-hop expansion)
         let mut candidates: PriorityQueue<CompoundKey, OrderedFloat<f64>> = PriorityQueue::new();
@@ -1087,7 +1167,7 @@ impl<'a> SessionTx<'a> {
         }
         for nn in expansion {
             vec_cache.ensure_key(&nn, orig_table, self)?;
-            let d = vec_cache.v_dist(&target_vec, &nn);
+            let d = vec_cache.v_dist(&target_vec, &nn)?;
             candidates.push(nn, OrderedFloat(d));
         }
 
@@ -1154,8 +1234,13 @@ impl<'a> SessionTx<'a> {
                 idx_table.encode_key_for_store(&nbr_self_key, Default::default())?;
             if let Some(existing) = self.store_tx.get(&nbr_self_key_bytes, false)? {
                 let mut val: Vec<DataValue> =
-                    rmp_serde::from_slice(&existing[ENCODED_KEY_MIN_LEN..]).unwrap();
-                let new_nbr_degree = val[0].get_float().unwrap() as usize + 1;
+                    rmp_serde::from_slice(&existing[ENCODED_KEY_MIN_LEN..])
+                        .map_err(|e| miette!("Failed to deserialize neighbor metadata: {e}"))?;
+                let new_nbr_degree = val[0]
+                    .get_float()
+                    .ok_or_else(|| miette!("Invalid neighbor degree"))?
+                    as usize
+                    + 1;
                 let actual = if new_nbr_degree > m_max {
                     self.hnsw_shrink_neighbour(
                         new_nbr, m_max, layer, manifest, idx_table, orig_table, vec_cache,
@@ -1182,7 +1267,8 @@ impl<'a> SessionTx<'a> {
             idx_table.encode_key_for_store(&target_self_key, Default::default())?;
         if let Some(existing) = self.store_tx.get(&target_self_key_bytes, false)? {
             let mut val: Vec<DataValue> =
-                rmp_serde::from_slice(&existing[ENCODED_KEY_MIN_LEN..]).unwrap();
+                rmp_serde::from_slice(&existing[ENCODED_KEY_MIN_LEN..])
+                    .map_err(|e| miette!("Failed to deserialize node metadata: {e}"))?;
             val[0] = DataValue::from(new_degree as f64);
             self.store_tx.put(
                 &target_self_key_bytes,
@@ -1203,8 +1289,15 @@ impl<'a> SessionTx<'a> {
         vec_cache: &mut VectorCache,
     ) -> Result<()> {
         let compound_key = (tuple_key.to_vec().into(), idx, subidx);
-        // Go down the layers and remove all the links
+
+        // Phase 1: Delete ALL edges and self-links across all layers, collecting
+        // neighbors that need repair. We must finish deleting every reference to
+        // the removed node before any repair runs, because repair does a 2-hop
+        // expansion that would otherwise discover stale edges to this node via
+        // un-processed neighbors.
         let mut encountered_singletons = false;
+        let mut neighbours_to_repair: Vec<(CompoundKey, i64)> = vec![];
+
         for neg_layer in 0i64.. {
             let layer = -neg_layer;
             let mut self_key = vec![DataValue::from(layer)];
@@ -1225,6 +1318,7 @@ impl<'a> SessionTx<'a> {
                 .collect_vec();
             encountered_singletons |= neigbours.is_empty();
             for (neighbour_key, _) in neigbours {
+                // Delete outgoing edge: deleted_node → neighbour
                 let mut out_key = vec![DataValue::from(layer)];
                 out_key.extend_from_slice(tuple_key);
                 out_key.push(DataValue::from(idx as i64));
@@ -1234,6 +1328,8 @@ impl<'a> SessionTx<'a> {
                 out_key.push(DataValue::from(neighbour_key.2 as i64));
                 let out_key_bytes = idx_table.encode_key_for_store(&out_key, Default::default())?;
                 self.store_tx.del(&out_key_bytes)?;
+
+                // Delete incoming edge: neighbour → deleted_node
                 let mut in_key = vec![DataValue::from(layer)];
                 in_key.extend_from_slice(&neighbour_key.0);
                 in_key.push(DataValue::from(neighbour_key.1 as i64));
@@ -1243,6 +1339,8 @@ impl<'a> SessionTx<'a> {
                 in_key.push(DataValue::from(subidx as i64));
                 let in_key_bytes = idx_table.encode_key_for_store(&in_key, Default::default())?;
                 self.store_tx.del(&in_key_bytes)?;
+
+                // Decrement neighbour's degree
                 let mut neighbour_self_key = vec![DataValue::from(layer)];
                 for _ in 0..2 {
                     neighbour_self_key.extend_from_slice(&neighbour_key.0);
@@ -1255,28 +1353,40 @@ impl<'a> SessionTx<'a> {
                         &idx_table.encode_key_for_store(&neighbour_self_key, Default::default())?,
                         false,
                     )?
-                    .unwrap();
+                    .ok_or_else(|| miette!("Neighbor metadata not found"))?;
                 let mut neighbour_val: Vec<DataValue> =
-                    rmp_serde::from_slice(&neighbour_val_bytes[ENCODED_KEY_MIN_LEN..]).unwrap();
-                neighbour_val[0] = DataValue::from(neighbour_val[0].get_float().unwrap() - 1.);
+                    rmp_serde::from_slice(&neighbour_val_bytes[ENCODED_KEY_MIN_LEN..])
+                        .map_err(|e| miette!("Failed to deserialize neighbor metadata: {e}"))?;
+                neighbour_val[0] = DataValue::from(
+                    neighbour_val[0]
+                        .get_float()
+                        .ok_or_else(|| miette!("Invalid degree"))?
+                        - 1.,
+                );
                 self.store_tx.put(
                     &idx_table.encode_key_for_store(&neighbour_self_key, Default::default())?,
                     &idx_table.encode_val_only_for_store(&neighbour_val, Default::default())?,
                 )?;
-                // Reconnect the former neighbor if it now has too few connections.
-                self.hnsw_repair_node(
-                    &neighbour_key,
-                    layer,
-                    manifest,
-                    orig_table,
-                    idx_table,
-                    vec_cache,
-                )?;
+
+                neighbours_to_repair.push((neighbour_key, layer));
             }
         }
 
+        // Phase 2: Now that ALL edges to/from the deleted node are gone, repair
+        // former neighbors that may have too few connections.
+        for (neighbour_key, layer) in neighbours_to_repair {
+            self.hnsw_repair_node(
+                &neighbour_key,
+                layer,
+                manifest,
+                orig_table,
+                idx_table,
+                vec_cache,
+            )?;
+        }
+
+        // Update entry point if needed
         if encountered_singletons {
-            // the entry point is removed, we need to do something
             let ep_res = idx_table
                 .scan_bounded_prefix(
                     self,
@@ -1298,8 +1408,9 @@ impl<'a> SessionTx<'a> {
             if let Some(ep) = ep_res {
                 let ep = ep?;
                 let target_key_bytes = idx_table.encode_key_for_store(&ep, Default::default())?;
-                let bottom_level = ep[0].get_int().unwrap();
-                // canary value is for conflict detection: prevent the scenario of disconnected graphs at all levels
+                let bottom_level = ep[0]
+                    .get_int()
+                    .ok_or_else(|| miette!("Invalid entry point level"))?;
                 let canary_value = [
                     DataValue::from(bottom_level),
                     DataValue::Bytes(target_key_bytes),
@@ -1309,7 +1420,6 @@ impl<'a> SessionTx<'a> {
                     idx_table.encode_val_only_for_store(&canary_value, Default::default())?;
                 self.store_tx.put(&canary_key_bytes, &canary_value_bytes)?;
             } else {
-                // HA! we have removed the last item in the index
                 self.store_tx.del(&canary_key_bytes)?;
             }
         }
@@ -1362,7 +1472,9 @@ impl<'a> SessionTx<'a> {
             .next();
         if let Some(ep) = ep_res {
             let ep = ep?;
-            let bottom_level = ep[0].get_int().unwrap();
+            let bottom_level = ep[0]
+                .get_int()
+                .ok_or_else(|| miette!("Invalid entry point level"))?;
             let ep_idx = match ep[config.base_handle.metadata.keys.len() + 1].get_int() {
                 Some(x) => x as usize,
                 None => {
@@ -1375,17 +1487,20 @@ impl<'a> SessionTx<'a> {
                 .into();
             let ep_subidx = ep[config.base_handle.metadata.keys.len() + 2]
                 .get_int()
-                .unwrap() as i32;
+                .ok_or_else(|| miette!("Invalid entry point subindex"))?
+                as i32;
             let ep_key = (ep_t_key, ep_idx, ep_subidx);
             vec_cache.ensure_key(&ep_key, &config.base_handle, self)?;
-            let ep_distance = vec_cache.v_dist(&q, &ep_key);
+            let ep_distance = vec_cache.v_dist(&q, &ep_key)?;
             let mut found_nn = PriorityQueue::new();
             found_nn.push(ep_key, OrderedFloat(ep_distance));
             let pq_dist_table: Option<Vec<Vec<f64>>> = if let Some(ref codebook) =
                 vec_cache.pq_codebook
             {
                 let q_slice = match &q {
-                    Vector::F32(arr) => arr.as_slice().unwrap(),
+                    Vector::F32(arr) => arr
+                        .as_slice()
+                        .ok_or_else(|| miette!("Invalid query vector slice"))?,
                     _ => bail!("PQ search only supported for F32 vectors"),
                 };
                 let mut table = vec![vec![0.0f64; codebook.num_centroids]; codebook.num_subspaces];
@@ -1630,7 +1745,7 @@ impl<'a> SessionTx<'a> {
             let tuple_key = &tuple[..key_len];
             if let Some(DataValue::Vec(v)) = tuple.get(field_idx) {
                 if let Vector::F32(_) = v.as_ref() {
-                    let codes = encode_vector_pq(v, &codebook);
+                    let codes = encode_vector_pq(v, &codebook)?;
                     let compound_key = (tuple_key.to_vec().into(), field_idx, -1i32);
                     self.hnsw_store_pq_codes(&idx_handle, &compound_key, &codes)?;
                 }
@@ -1638,7 +1753,7 @@ impl<'a> SessionTx<'a> {
                 for (sidx, item) in l.iter().enumerate() {
                     if let DataValue::Vec(v) = item {
                         if let Vector::F32(_) = v.as_ref() {
-                            let codes = encode_vector_pq(v, &codebook);
+                            let codes = encode_vector_pq(v, &codebook)?;
                             let compound_key = (tuple_key.to_vec().into(), field_idx, sidx as i32);
                             self.hnsw_store_pq_codes(&idx_handle, &compound_key, &codes)?;
                         }

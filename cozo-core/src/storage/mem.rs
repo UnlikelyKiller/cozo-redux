@@ -208,7 +208,7 @@ impl<'s> StoreTx<'s> for MemTx<'s> {
         match self {
             MemTx::Reader(rdr) => Box::new(
                 rdr.range(byte_range(lower, upper))
-                    .map(|(k, v)| Ok(decode_tuple_from_kv(k, v, None))),
+                    .map(|(k, v)| decode_tuple_from_kv(k, v, None)),
             ),
             MemTx::Writer(wtr, cache) => Box::new(CacheIter {
                 change_iter: cache.range(byte_range(lower, upper)).fuse(),
@@ -226,26 +226,20 @@ impl<'s> StoreTx<'s> for MemTx<'s> {
         valid_at: ValidityTs,
     ) -> Box<dyn Iterator<Item = Result<Tuple>> + 'a> {
         match self {
-            MemTx::Reader(stored) => Box::new(
-                SkipIterator {
-                    inner: stored,
-                    upper: upper.to_vec(),
-                    valid_at,
-                    next_bound: lower.to_vec(),
-                    size_hint: None,
-                }
-                .map(Ok),
-            ),
-            MemTx::Writer(stored, delta) => Box::new(
-                SkipDualIterator {
-                    stored,
-                    delta,
-                    upper: upper.to_vec(),
-                    valid_at,
-                    next_bound: lower.to_vec(),
-                }
-                .map(Ok),
-            ),
+            MemTx::Reader(stored) => Box::new(SkipIterator {
+                inner: stored,
+                upper: upper.to_vec(),
+                valid_at,
+                next_bound: lower.to_vec(),
+                size_hint: None,
+            }),
+            MemTx::Writer(stored, delta) => Box::new(SkipDualIterator {
+                stored,
+                delta,
+                upper: upper.to_vec(),
+                valid_at,
+                next_bound: lower.to_vec(),
+            }),
         }
     }
 
@@ -423,24 +417,24 @@ impl CacheIter<'_> {
                     let (k, cv) = self.change_cache.take().unwrap();
                     match cv {
                         None => continue,
-                        Some(v) => return Ok(Some(decode_tuple_from_kv(k, v, None))),
+                        Some(v) => return Ok(Some(decode_tuple_from_kv(k, v, None)?)),
                     }
                 }
                 (None, Some(_)) => {
                     let (k, v) = self.db_cache.take().unwrap();
-                    return Ok(Some(decode_tuple_from_kv(k, v, None)));
+                    return Ok(Some(decode_tuple_from_kv(k, v, None)?));
                 }
                 (Some((ck, _)), Some((dk, _))) => match ck.cmp(dk) {
                     Ordering::Less => {
                         let (k, sv) = self.change_cache.take().unwrap();
                         match sv {
                             None => continue,
-                            Some(v) => return Ok(Some(decode_tuple_from_kv(k, v, None))),
+                            Some(v) => return Ok(Some(decode_tuple_from_kv(k, v, None)?)),
                         }
                     }
                     Ordering::Greater => {
                         let (k, v) = self.db_cache.take().unwrap();
-                        return Ok(Some(decode_tuple_from_kv(k, v, None)));
+                        return Ok(Some(decode_tuple_from_kv(k, v, None)?));
                     }
                     Ordering::Equal => {
                         self.db_cache.take();
@@ -471,7 +465,7 @@ pub(crate) struct SkipIterator<'a> {
 }
 
 impl<'a> Iterator for SkipIterator<'a> {
-    type Item = Tuple;
+    type Item = Result<Tuple>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -489,8 +483,10 @@ impl<'a> Iterator for SkipIterator<'a> {
                         check_key_for_validity(candidate_key, self.valid_at, self.size_hint);
                     self.next_bound = nxt_bound;
                     if let Some(mut nk) = ret {
-                        extend_tuple_from_v(&mut nk, candidate_val);
-                        return Some(nk);
+                        if let Err(e) = extend_tuple_from_v(&mut nk, candidate_val) {
+                            return Some(Err(e));
+                        }
+                        return Some(Ok(nk));
                     }
                 }
             }
@@ -507,7 +503,7 @@ struct SkipDualIterator<'a> {
 }
 
 impl<'a> Iterator for SkipDualIterator<'a> {
-    type Item = Tuple;
+    type Item = Result<Tuple>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -555,8 +551,10 @@ impl<'a> Iterator for SkipDualIterator<'a> {
             let (ret, nxt_bound) = check_key_for_validity(candidate_key, self.valid_at, None);
             self.next_bound = nxt_bound;
             if let Some(mut nk) = ret {
-                extend_tuple_from_v(&mut nk, candidate_val);
-                return Some(nk);
+                if let Err(e) = extend_tuple_from_v(&mut nk, candidate_val) {
+                    return Some(Err(e));
+                }
+                return Some(Ok(nk));
             }
         }
     }

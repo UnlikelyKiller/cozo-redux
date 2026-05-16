@@ -6,12 +6,13 @@ Master registry for development tracks and architectural upgrades.
 
 | Track ID | Status | Objective | Owner |
 | :--- | :--- | :--- | :--- |
-| **013** | `In Progress` | Dependency Transitivity — swapvec path dependency for downstream lz4_flex fix | Orchestrator |
 
 ## Completed Tracks
 
 | Track ID | Objective |
 | :--- | :--- |
+| **014** | HNSW Engine Hardening — Two-phase removal + Miette error propagation |
+| **013** | Dependency Transitivity — swapvec path dependency for downstream lz4_flex fix |
 | **001** | Infrastructure & Security Patches (`lz4_flex`, `tokio`) — *partial: patch not transitive* |
 | **012** | Storage Scale — Vector quantization (Product Quantization) |
 | **002** | Unmaintained Hygiene (`lazy_static`, `adler`, `fxhash`) |

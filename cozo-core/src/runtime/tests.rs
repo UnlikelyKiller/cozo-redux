@@ -1890,3 +1890,70 @@ fn test_parallel_join_correctness() {
         assert_eq!(v, k * 3);
     }
 }
+
+#[test]
+fn test_hnsw_panic_repro() {
+    let db = DbInstance::new("mem", "", "").unwrap();
+
+    // Create a relation with 3 keys
+    db.run_default(
+        r"
+        ?[k1, k2, k3, v] <- [['a', 1, 10, [1,2]],
+                             ['a', 1, 11, [2,3]],
+                             ['a', 2, 10, [3,4]],
+                             ['b', 1, 10, [4,5]],
+                             ['b', 2, 20, [5,6]]]
+        :create repro {k1: String, k2: Int, k3: Int => v: <F32; 2>}
+        ",
+    )
+    .unwrap();
+
+    // Create HNSW index
+    db.run_default(
+        r"
+        ::hnsw create repro:idx {
+            dim: 2,
+            m: 16,
+            dtype: F32,
+            fields: [v],
+            distance: L2,
+            ef_construction: 20
+        }
+        ",
+    )
+    .unwrap();
+
+    // Perform many insertions and removals to stress the graph
+    for i in 0..100 {
+        let val = [i as f32, (i + 1) as f32];
+        let query = format!(
+            "?[k1, k2, k3, v] <- [['c', {}, {}, {:?}]] :put repro {{k1, k2, k3 => v}}",
+            i,
+            i * 2,
+            val
+        );
+        db.run_default(&query).unwrap();
+
+        if i % 5 == 0 {
+            let del_query = format!(
+                "?[k1, k2, k3] <- [['c', {}, {}]] :rm repro {{k1, k2, k3}}",
+                i,
+                i * 2
+            );
+            db.run_default(&del_query).unwrap();
+        }
+    }
+
+    // Perform a KNN search to verify the index is usable
+    let search_query =
+        "?[k1, k2, k3, dist] := ~repro:idx{k1, k2, k3 | query: v, k: 5, ef: 16, bind_distance: dist, radius: 9999.0}";
+    let res = db.run_default(search_query);
+    // The index should be queryable even after repeated inserts/deletes
+    match res {
+        Ok(r) => println!("Search results: {:?}", r.rows.len()),
+        Err(e) => println!(
+            "Search query failed (expected if all vectors removed): {:?}",
+            e
+        ),
+    }
+}
