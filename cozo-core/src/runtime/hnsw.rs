@@ -76,6 +76,14 @@ impl HnswIndexManifest {
 
 type CompoundKey = (Tuple, usize, i32);
 
+fn decode_metadata(bytes: &[u8]) -> Result<Vec<DataValue>> {
+    if bytes.len() < ENCODED_KEY_MIN_LEN {
+        return Ok(Vec::new());
+    }
+    rmp_serde::from_slice(&bytes[ENCODED_KEY_MIN_LEN..])
+        .map_err(|e| miette!("Failed to deserialize HNSW metadata: {e}"))
+}
+
 fn kmeans_lloyd(data: &[Vec<f32>], k: usize, max_iter: usize) -> Vec<Vec<f32>> {
     let n = data.len();
     let d = data[0].len();
@@ -300,9 +308,7 @@ impl VectorCache {
                 self.pq_codes.insert(key.clone(), Vec::new());
             }
             Some(val_bytes) => {
-                let val_tuple: Vec<DataValue> =
-                    rmp_serde::from_slice(&val_bytes[ENCODED_KEY_MIN_LEN..])
-                        .map_err(|e| miette!("failed to deserialize PQ codes: {e}"))?;
+                let val_tuple: Vec<DataValue> = decode_metadata(&val_bytes)?;
                 match val_tuple.first() {
                     Some(DataValue::Bytes(bytes)) => {
                         self.pq_codes.insert(key.clone(), bytes.clone());
@@ -525,12 +531,13 @@ impl<'a> SessionTx<'a> {
                         None => bail!("Indexed vector not found, this signifies a bug in the index implementation"),
                     };
                     let mut target_self_val: Vec<DataValue> =
-                        rmp_serde::from_slice(&target_self_val_bytes[ENCODED_KEY_MIN_LEN..])
-                            .map_err(|e| miette!("Failed to deserialize neighbor metadata: {e}"))?;
-                    let mut target_degree = target_self_val[0]
-                        .get_float()
-                        .ok_or_else(|| miette!("Invalid neighbor degree"))?
-                        as usize
+                        decode_metadata(&target_self_val_bytes)?;
+                    let mut target_degree = target_self_val
+                        .first()
+                        .and_then(|v| v.get_float())
+                        .ok_or_else(|| {
+                            miette!("Invalid neighbor degree (metadata too short or corrupted)")
+                        })? as usize
                         + 1;
                     if target_degree > m_max {
                         // shrink links
@@ -654,9 +661,7 @@ impl<'a> SessionTx<'a> {
                         bail!("Indexed vector not found, this signifies a bug in the index implementation")
                     }
                 };
-                let old_existing_val: Vec<DataValue> =
-                    rmp_serde::from_slice(&old_existing_val[ENCODED_KEY_MIN_LEN..])
-                        .map_err(|e| miette!("Failed to deserialize node metadata: {e}"))?;
+                let old_existing_val: Vec<DataValue> = decode_metadata(&old_existing_val)?;
                 if old_existing_val
                     .get(2)
                     .and_then(|v| v.get_bool())
@@ -1233,11 +1238,10 @@ impl<'a> SessionTx<'a> {
             let nbr_self_key_bytes =
                 idx_table.encode_key_for_store(&nbr_self_key, Default::default())?;
             if let Some(existing) = self.store_tx.get(&nbr_self_key_bytes, false)? {
-                let mut val: Vec<DataValue> =
-                    rmp_serde::from_slice(&existing[ENCODED_KEY_MIN_LEN..])
-                        .map_err(|e| miette!("Failed to deserialize neighbor metadata: {e}"))?;
-                let new_nbr_degree = val[0]
-                    .get_float()
+                let mut val: Vec<DataValue> = decode_metadata(&existing)?;
+                let new_nbr_degree = val
+                    .first()
+                    .and_then(|v| v.get_float())
                     .ok_or_else(|| miette!("Invalid neighbor degree"))?
                     as usize
                     + 1;
@@ -1266,9 +1270,11 @@ impl<'a> SessionTx<'a> {
         let target_self_key_bytes =
             idx_table.encode_key_for_store(&target_self_key, Default::default())?;
         if let Some(existing) = self.store_tx.get(&target_self_key_bytes, false)? {
-            let mut val: Vec<DataValue> =
-                rmp_serde::from_slice(&existing[ENCODED_KEY_MIN_LEN..])
-                    .map_err(|e| miette!("Failed to deserialize node metadata: {e}"))?;
+            let mut val: Vec<DataValue> = decode_metadata(&existing)?;
+            ensure!(
+                !val.is_empty(),
+                "Node metadata is empty or corrupted during degree update"
+            );
             val[0] = DataValue::from(new_degree as f64);
             self.store_tx.put(
                 &target_self_key_bytes,
@@ -1354,9 +1360,11 @@ impl<'a> SessionTx<'a> {
                         false,
                     )?
                     .ok_or_else(|| miette!("Neighbor metadata not found"))?;
-                let mut neighbour_val: Vec<DataValue> =
-                    rmp_serde::from_slice(&neighbour_val_bytes[ENCODED_KEY_MIN_LEN..])
-                        .map_err(|e| miette!("Failed to deserialize neighbor metadata: {e}"))?;
+                let mut neighbour_val: Vec<DataValue> = decode_metadata(&neighbour_val_bytes)?;
+                ensure!(
+                    !neighbour_val.is_empty(),
+                    "Neighbor metadata is empty or corrupted"
+                );
                 neighbour_val[0] = DataValue::from(
                     neighbour_val[0]
                         .get_float()
@@ -1814,9 +1822,7 @@ impl<'a> SessionTx<'a> {
         match self.store_tx.get(&key_bytes, false)? {
             None => Ok(None),
             Some(val_bytes) => {
-                let val_tuple: Vec<DataValue> =
-                    rmp_serde::from_slice(&val_bytes[ENCODED_KEY_MIN_LEN..])
-                        .map_err(|e| miette!("failed to deserialize PQ codebook entry: {e}"))?;
+                let val_tuple: Vec<DataValue> = decode_metadata(&val_bytes)?;
                 match val_tuple.get(1) {
                     Some(DataValue::Bytes(bytes)) => {
                         let codebook = rmp_serde::from_slice(bytes)

@@ -14,6 +14,7 @@ This is the consolidated release of the CozoDB-redux fork, incorporating 14 majo
 * **HNSW Engine Hardening** — Two-phase removal logic ensures no stale edges remain in the graph after deletion, preventing "key not found" panics.
 * **Safe Error Propagation** — Replaced internal `unwrap()` and `expect()` calls with `miette`-based `Result` propagation across HNSW and storage layers.
 * **HNSW graph repair on deletion** — Former neighbors whose degree drops too low are automatically reconnected via heuristic candidate selection.
+* **HNSW metadata deserialization safety** — Added `decode_metadata` helper; all metadata deserialization paths now guard against short buffers, preventing index-out-of-bounds panics during semantic indexing.
 
 ### Performance & Efficiency
 
